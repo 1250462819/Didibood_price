@@ -7,9 +7,11 @@ import pandas as pd
 from catboost import Pool
 
 from config.settings import settings
-from data.clean import price_outlier_mask
+from data.clean import trimmed_price_series
 from data.comparables_subset import (
     known_neighbourhood_titles as _known_neighbourhood_titles,
+)
+from data.comparables_subset import (
     subset_comparables,
 )
 from data.extract import extract_comparables_dataframe, load_or_extract
@@ -217,7 +219,6 @@ def comparable_stats(
     neighbourhood = (features.neighbourhood or "").strip()
     subset, filters = subset_comparables(dataset, neighbourhood or None)
     neighbourhood_applied = bool(filters.get("neighbourhood_applied"))
-    resolved_neighbourhood = filters.get("neighbourhood_resolved")
 
     if neighbourhood_applied and subset.empty:
         return _empty_comparables(
@@ -238,13 +239,15 @@ def comparable_stats(
             },
         )
 
-    y_for_bounds = y.loc[price_outlier_mask(y)]
-    if y_for_bounds.empty:
-        y_for_bounds = y
+    # Every published statistic must describe the same population. Previously
+    # min/max came from the IQR-trimmed series while mean/median/quartiles came
+    # from the raw one, so Tehran reported a 1.06B/sqm "max" against a 200M
+    # median — log-IQR at 1.5x is far too permissive for this tail.
+    y_clean = trimmed_price_series(y)
 
     filters = {
         **filters,
-        "min_max_outliers_removed": int(len(y) - len(y_for_bounds)),
+        "min_max_outliers_removed": int(len(y) - len(y_clean)),
     }
 
     if features.purpose == "rent":
@@ -253,26 +256,26 @@ def comparable_stats(
             "min_price_per_sqm_toman": None,
             "max_price_per_sqm_toman": None,
             "median_price_per_sqm_toman": None,
-            "mean_equivalent_deposit_toman": int(round(float(y.mean()))),
-            "min_equivalent_deposit_toman": int(round(float(y_for_bounds.min()))),
-            "max_equivalent_deposit_toman": int(round(float(y_for_bounds.max()))),
-            "median_equivalent_deposit_toman": int(round(float(y.median()))),
-            "sample_size": int(len(y)),
+            "mean_equivalent_deposit_toman": int(round(float(y_clean.mean()))),
+            "min_equivalent_deposit_toman": int(round(float(y_clean.min()))),
+            "max_equivalent_deposit_toman": int(round(float(y_clean.max()))),
+            "median_equivalent_deposit_toman": int(round(float(y_clean.median()))),
+            "sample_size": int(len(y_clean)),
             "filters_applied": filters,
         }
 
     return {
-        "mean_price_per_sqm_toman": int(round(float(y.mean()))),
-        "min_price_per_sqm_toman": int(round(float(y_for_bounds.min()))),
-        "max_price_per_sqm_toman": int(round(float(y_for_bounds.max()))),
-        "median_price_per_sqm_toman": int(round(float(y.median()))),
-        "q1_price_per_sqm_toman": int(round(float(y.quantile(0.25)))),
-        "q3_price_per_sqm_toman": int(round(float(y.quantile(0.75)))),
+        "mean_price_per_sqm_toman": int(round(float(y_clean.mean()))),
+        "min_price_per_sqm_toman": int(round(float(y_clean.min()))),
+        "max_price_per_sqm_toman": int(round(float(y_clean.max()))),
+        "median_price_per_sqm_toman": int(round(float(y_clean.median()))),
+        "q1_price_per_sqm_toman": int(round(float(y_clean.quantile(0.25)))),
+        "q3_price_per_sqm_toman": int(round(float(y_clean.quantile(0.75)))),
         "mean_equivalent_deposit_toman": None,
         "min_equivalent_deposit_toman": None,
         "max_equivalent_deposit_toman": None,
         "median_equivalent_deposit_toman": None,
-        "sample_size": int(len(y)),
+        "sample_size": int(len(y_clean)),
         "filters_applied": filters,
     }
 

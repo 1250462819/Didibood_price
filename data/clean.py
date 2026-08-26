@@ -57,6 +57,27 @@ def price_outlier_mask(series: pd.Series, *, iqr_multiplier: float | None = None
     return (log_y >= low) & (log_y <= high)
 
 
+# Display bounds for comparables. Log-IQR keeps anything inside 1.5x the spread,
+# which on Divar's tail let a 1.06B/sqm listing through against a 200M median.
+# Percentile clipping is bounded by construction, so the "cheapest/priciest
+# comparable" a user reads stays a real listing rather than a data-entry error.
+COMPARABLE_CLIP_LOW_PCT = 0.02
+COMPARABLE_CLIP_HIGH_PCT = 0.98
+COMPARABLE_CLIP_MIN_ROWS = 20
+
+
+def trimmed_price_series(series: pd.Series) -> pd.Series:
+    """Drop the extreme tails so every published statistic describes one population."""
+    values = series.astype(float)
+    values = values[values.notna() & (values > 0)]
+    if len(values) < COMPARABLE_CLIP_MIN_ROWS:
+        return values if not values.empty else series.astype(float)
+    low = values.quantile(COMPARABLE_CLIP_LOW_PCT)
+    high = values.quantile(COMPARABLE_CLIP_HIGH_PCT)
+    clipped = values[(values >= low) & (values <= high)]
+    return clipped if not clipped.empty else values
+
+
 def remove_price_outliers(
     df: pd.DataFrame,
     target_column: str,

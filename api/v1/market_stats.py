@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from application.market_stats.read import get_market_stats
-from schemas.price import MarketStatsResponse, PropertyType, Purpose, MarketStatsQuery
+from schemas.price import MarketStatsQuery, MarketStatsResponse, PropertyType, Purpose
 
 router = APIRouter(prefix="/market-stats", tags=["Market Stats"])
 

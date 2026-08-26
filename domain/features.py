@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from config.settings import settings
+from data.neighbourhood_persian import resolve_training_neighbourhood
 from domain.divar_attrs import (
     attr_bool,
     attr_int,
@@ -13,7 +14,6 @@ from domain.divar_attrs import (
     parse_floor,
     property_type_from_category,
 )
-from data.neighbourhood_persian import resolve_training_neighbourhood
 from domain.model_key import ModelKey
 from domain.target import (
     RENT_TARGET_COLUMN,

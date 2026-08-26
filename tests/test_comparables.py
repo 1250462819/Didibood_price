@@ -32,7 +32,8 @@ def test_comparable_min_max_ignore_outliers():
         target_column="price_per_sqm_toman",
     )
 
-    assert result["sample_size"] == len(rows)
+    # Stats describe the trimmed population, so the count must match it too.
+    assert result["sample_size"] < len(rows)
     assert result["min_price_per_sqm_toman"] >= 150_000_000
     assert result["max_price_per_sqm_toman"] <= 300_000_000
     assert result["q1_price_per_sqm_toman"] is not None
@@ -40,6 +41,44 @@ def test_comparable_min_max_ignore_outliers():
     assert result["q1_price_per_sqm_toman"] <= result["median_price_per_sqm_toman"] <= result["q3_price_per_sqm_toman"]
     assert result["filters_applied"]["neighbourhood_applied"] is True
     assert result["filters_applied"]["min_max_outliers_removed"] >= 2
+
+
+def test_max_stays_near_the_median_on_a_fat_right_tail():
+    """Regression: Tehran city-wide reported max 1.06B/sqm against a 200M median.
+
+    log-IQR at 1.5x let that through, and because mean/median were computed on
+    the untrimmed series while min/max were not, the published stats described
+    two different populations.
+    """
+    rows = [200_000_000 + (i % 2000) * 50_000 for i in range(3000)]
+    rows += [1_061_538_462, 980_000_000, 40_000_000]
+    df = pd.DataFrame(
+        {
+            "neighbourhood": ["جردن"] * len(rows),
+            "area": [85.0] * len(rows),
+            "rooms": [2] * len(rows),
+            "price_per_sqm_toman": rows,
+        }
+    )
+    features = PricingFeatures.from_request(
+        {"city_slug": "tehran", "neighbourhood": "جردن", "area": 85, "rooms": 2}
+    )
+
+    result = comparable_stats(
+        features, dataset=df, target_column="price_per_sqm_toman"
+    )
+
+    median = result["median_price_per_sqm_toman"]
+    assert result["max_price_per_sqm_toman"] < median * 2
+    assert result["min_price_per_sqm_toman"] > median * 0.5
+    # One population: min <= q1 <= median <= q3 <= max, all from the same rows.
+    assert (
+        result["min_price_per_sqm_toman"]
+        <= result["q1_price_per_sqm_toman"]
+        <= median
+        <= result["q3_price_per_sqm_toman"]
+        <= result["max_price_per_sqm_toman"]
+    )
 
 
 def test_comparable_keeps_small_neighbourhood_sample():

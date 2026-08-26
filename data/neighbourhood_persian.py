@@ -12,8 +12,8 @@ from urllib.request import urlopen
 import psycopg
 
 from config.settings import settings
-from domain.neighbourhood import is_persian_neighbourhood, is_slug_like
 from domain.model_key import SUPPORTED_CITIES
+from domain.neighbourhood import is_persian_neighbourhood, is_slug_like
 
 logger = logging.getLogger(__name__)
 

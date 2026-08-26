@@ -124,3 +124,14 @@ class MarketStatsResponse(BaseModel):
     months: int
     points: list[MarketStatsPoint] = Field(default_factory=list)
     sample_size: int = 0
+    coverage_start: str | None = Field(
+        None,
+        description="Earliest YYYY-MM in the window that actually has listings",
+    )
+    covered_months: int = Field(
+        0,
+        description=(
+            "Months in the window with listings. Lets callers tell a flat market "
+            "apart from a crawl history too short to answer the question."
+        ),
+    )
