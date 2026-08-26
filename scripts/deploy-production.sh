@@ -144,9 +144,12 @@ fi
 
 echo "==> systemd unit"
 UNIT_SRC="deploy/systemd/didibood-price.service"
-UNIT_TMP="/tmp/didibood-price.service"
+# A fixed /tmp path breaks every deploy after the first: the earlier run leaves a
+# root-owned file behind and /tmp is sticky, so the deploy user cannot overwrite it.
+UNIT_TMP="$(mktemp)"
+trap 'rm -f "$UNIT_TMP"' EXIT
 sed "s|__DEPLOY_USER__|${DEPLOY_USER}|g" "$UNIT_SRC" > "$UNIT_TMP"
-sudo cp "$UNIT_TMP" /etc/systemd/system/didibood-price.service
+sudo install -m 0644 -o root -g root "$UNIT_TMP" /etc/systemd/system/didibood-price.service
 sudo systemctl daemon-reload
 sudo systemctl enable didibood-price
 
