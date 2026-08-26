@@ -1,0 +1,14 @@
+.env
+.env.local
+.env.production
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.ruff_cache/
+.mypy_cache/
+catboost_info/
+artifacts/datasets/
+artifacts/models/

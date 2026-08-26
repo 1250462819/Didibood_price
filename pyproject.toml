@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "didibood-price"
+version = "0.1.0"
+description = "Didibood property price prediction (CatBoost per city/type)"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["api*", "config*", "data*", "domain*", "inference*", "pricing*", "schemas*", "training*"]
+exclude = ["tests*", "artifacts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+exclude = [".venv", ".ruff_cache", "artifacts"]
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

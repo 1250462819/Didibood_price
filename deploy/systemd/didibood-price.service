@@ -1,0 +1,18 @@
+[Unit]
+Description=Didibood Price ML service (sale + rent, internal :8093)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__DEPLOY_USER__
+Group=__DEPLOY_USER__
+WorkingDirectory=/opt/didibood/Didibood_Price
+EnvironmentFile=/opt/didibood/Didibood_Price/.env
+ExecStart=/opt/didibood/Didibood_Price/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

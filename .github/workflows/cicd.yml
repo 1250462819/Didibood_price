@@ -1,0 +1,71 @@
+# Didibood Price — validate and deploy only explicit production tags.
+#
+# Required GitHub repository secrets:
+#   DEPLOY_HOST, DEPLOY_SSH_KEY
+# Optional:
+#   DEPLOY_USER (default ubuntu)
+#   PRICE_DEPLOY_PATH (default /opt/didibood/Didibood_Price)
+
+name: Didibood Price CI/CD
+
+on:
+  push:
+    tags:
+      - "prd-*"
+  workflow_dispatch:
+
+concurrency:
+  group: didibood-price-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Validate & deploy production
+    if: github.event_name == 'workflow_dispatch' || github.event.deleted == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate production tag
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^prd-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected production tag prd-X.Y.Z; got $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          git fetch origin main:refs/remotes/origin/main --no-tags
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "Production tag must point to a commit on main" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Unit tests
+        run: python -m pytest tests/ -q
+
+      - name: Load SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Deploy to server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          PRICE_DEPLOY_PATH: ${{ vars.PRICE_DEPLOY_PATH }}
+        run: |
+          export DEPLOY_USER="${DEPLOY_USER:-ubuntu}"
+          export PRICE_DEPLOY_PATH="${PRICE_DEPLOY_PATH:-/opt/didibood/Didibood_Price}"
+          chmod +x scripts/deploy-production.sh
+          scripts/deploy-production.sh
