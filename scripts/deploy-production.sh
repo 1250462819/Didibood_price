@@ -156,13 +156,21 @@ sudo systemctl enable didibood-price
 # ufw is first-match: an allow appended below a "DENY <port>/tcp from Anywhere" rule never fires.
 # Insert above that deny instead, and treat an existing-but-dead allow as missing so a redeploy
 # repairs it. head -1 takes the IPv4 rules; the "(v6)" copies sit lower at other positions.
+#
+# The `|| true` on both lookups is load-bearing under this block's `set -euo pipefail`: "no such
+# rule" is the normal case, but grep answers it with exit 1, pipefail promotes that to the
+# pipeline, and the failed assignment aborts the deploy — here, between `systemctl enable` and
+# `systemctl restart`, so code lands on the server and the old process keeps serving. Production
+# has no DENY rule for :8093, so `deny_pos` is the lookup that misses. The identical helper in
+# Map shipped without these guards and silently skipped the restart on every deploy until it was
+# caught; see Map commit "Stop the ufw rule check from aborting every Map deploy".
 ufw_allow_before_deny() {
   local cidr="$1" port="$2" comment="$3" rules allow_pos deny_pos
   rules="$(sudo ufw status numbered 2>/dev/null)" || return 0
   allow_pos="$(grep -E "^\[[[:space:]]*[0-9]+\][[:space:]]+${port}[[:space:]]+ALLOW IN[[:space:]]+${cidr//./\\.}([[:space:]]|$)" <<<"$rules" |
-    head -1 | sed -E 's/^\[[[:space:]]*([0-9]+)\].*/\1/')"
+    head -1 | sed -E 's/^\[[[:space:]]*([0-9]+)\].*/\1/' || true)"
   deny_pos="$(grep -E "^\[[[:space:]]*[0-9]+\][[:space:]]+${port}(/tcp)?[[:space:]]+DENY" <<<"$rules" |
-    head -1 | sed -E 's/^\[[[:space:]]*([0-9]+)\].*/\1/')"
+    head -1 | sed -E 's/^\[[[:space:]]*([0-9]+)\].*/\1/' || true)"
   if [[ -n "$allow_pos" ]] && { [[ -z "$deny_pos" ]] || (( allow_pos < deny_pos )); }; then
     return 0
   fi
