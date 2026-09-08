@@ -153,12 +153,41 @@ sudo install -m 0644 -o root -g root "$UNIT_TMP" /etc/systemd/system/didibood-pr
 sudo systemctl daemon-reload
 sudo systemctl enable didibood-price
 
+# ufw is first-match: an allow appended below a "DENY <port>/tcp from Anywhere" rule never fires.
+# Insert above that deny instead, and treat an existing-but-dead allow as missing so a redeploy
+# repairs it. head -1 takes the IPv4 rules; the "(v6)" copies sit lower at other positions.
+#
+# The `|| true` on both lookups is load-bearing under this block's `set -euo pipefail`: "no such
+# rule" is the normal case, but grep answers it with exit 1, pipefail promotes that to the
+# pipeline, and the failed assignment aborts the deploy — here, between `systemctl enable` and
+# `systemctl restart`, so code lands on the server and the old process keeps serving. Production
+# has no DENY rule for :8093, so `deny_pos` is the lookup that misses. The identical helper in
+# Map shipped without these guards and silently skipped the restart on every deploy until it was
+# caught; see Map commit "Stop the ufw rule check from aborting every Map deploy".
+ufw_allow_before_deny() {
+  local cidr="$1" port="$2" comment="$3" rules allow_pos deny_pos
+  rules="$(sudo ufw status numbered 2>/dev/null)" || return 0
+  allow_pos="$(grep -E "^\[[[:space:]]*[0-9]+\][[:space:]]+${port}[[:space:]]+ALLOW IN[[:space:]]+${cidr//./\\.}([[:space:]]|$)" <<<"$rules" |
+    head -1 | sed -E 's/^\[[[:space:]]*([0-9]+)\].*/\1/' || true)"
+  deny_pos="$(grep -E "^\[[[:space:]]*[0-9]+\][[:space:]]+${port}(/tcp)?[[:space:]]+DENY" <<<"$rules" |
+    head -1 | sed -E 's/^\[[[:space:]]*([0-9]+)\].*/\1/' || true)"
+  if [[ -n "$allow_pos" ]] && { [[ -z "$deny_pos" ]] || (( allow_pos < deny_pos )); }; then
+    return 0
+  fi
+  if [[ -n "$deny_pos" ]]; then
+    sudo ufw insert "$deny_pos" allow from "$cidr" to any port "$port" comment "$comment" >/dev/null 2>&1 || true
+  else
+    sudo ufw allow from "$cidr" to any port "$port" comment "$comment" >/dev/null 2>&1 || true
+  fi
+  echo "    ufw: ${cidr} → :${port} (${comment})"
+}
+
 GW="$(docker network ls --format '{{.Name}}' 2>/dev/null | grep -i gateway | grep _default | head -1 | xargs -I{} docker network inspect {} -f '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
 if [[ -n "$GW" && "$GW" != "<no value>" ]]; then
   if command -v ufw >/dev/null 2>&1; then
     SUBNET="$(docker network ls --format '{{.Name}}' 2>/dev/null | grep -i gateway | grep _default | head -1 | xargs -I{} docker network inspect {} -f '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)"
     if [[ -n "$SUBNET" ]]; then
-      sudo ufw allow from "$SUBNET" to any port 8093 comment 'didibood gateway price' >/dev/null 2>&1 || true
+      ufw_allow_before_deny "$SUBNET" 8093 'didibood gateway price'
     fi
   fi
 fi
