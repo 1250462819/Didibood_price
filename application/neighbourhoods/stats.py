@@ -17,12 +17,18 @@ from application.neighbourhoods.filters import (
     NeighbourhoodFilters,
     budget_series,
     month_labels,
-    to_period,
+    period_series,
 )
 
 #: A month needs this many listings before its median is allowed to move a trend
 #: line. Below it the month is reported with its count and no price.
 MIN_TREND_SAMPLE = 5
+
+#: …and it needs to be a *whole* month. The crawl started mid-July, so July holds
+#: six days of listings; compared against a full August it read as a 7% fall in
+#: Tehran prices that never happened. A month carrying less than this share of a
+#: typical month's listings is counted but not priced.
+PARTIAL_MONTH_SHARE = 0.25
 
 #: Bands used for the breakdown tables. Chosen to match how people search rather
 #: than to split the data evenly.
@@ -67,6 +73,29 @@ def _pct_change(old: float | None, new: float | None) -> float | None:
     return _f((new - old) / old * 100.0)
 
 
+def publishable_months(counts: pd.Series) -> set[str]:
+    """Months whose listing count makes their median comparable to the others."""
+    present = counts[counts > 0]
+    if present.empty:
+        return set()
+    floor = max(MIN_TREND_SAMPLE, float(present.median()) * PARTIAL_MONTH_SHARE)
+    return set(present[present >= floor].index)
+
+
+def _points_from(
+    counts: pd.Series,
+    medians: pd.Series,
+    labels: list[str],
+) -> list[dict[str, Any]]:
+    allowed = publishable_months(counts)
+    points: list[dict[str, Any]] = []
+    for label in labels:
+        sample = int(counts.get(label, 0))
+        median = _f(medians.get(label)) if label in allowed else None
+        points.append({"period": label, "median": median, "sample_size": sample})
+    return points
+
+
 def monthly_points(
     frame: pd.DataFrame,
     *,
@@ -78,18 +107,14 @@ def monthly_points(
     if frame.empty or "first_seen_at" not in frame.columns:
         return [{"period": p, "median": None, "sample_size": 0} for p in labels]
 
-    working = frame.copy()
-    working["period"] = working["first_seen_at"].map(to_period)
-    working = working[working["period"].notna()]
-    counts = working.groupby("period").size()
-    medians = working.groupby("period")[target_column].median()
-
-    points: list[dict[str, Any]] = []
-    for label in labels:
-        sample = int(counts.get(label, 0))
-        median = _f(medians.get(label)) if sample >= MIN_TREND_SAMPLE else None
-        points.append({"period": label, "median": median, "sample_size": sample})
-    return points
+    periods = (
+        frame["_period"]
+        if "_period" in frame.columns
+        else period_series(frame["first_seen_at"])
+    )
+    valid = periods.notna()
+    grouped = frame.loc[valid].groupby(periods[valid])
+    return _points_from(grouped.size(), grouped[target_column].median(), labels)
 
 
 def trend_pct(points: list[dict[str, Any]]) -> float | None:
@@ -107,34 +132,79 @@ def neighbourhood_rows(
     purpose: str,
     months: int,
 ) -> list[dict[str, Any]]:
-    """One row per neighbourhood: the ranking table and the map's colour values."""
+    """One row per neighbourhood: the ranking table and the map's colour values.
+
+    Computed in a few grouped passes rather than per neighbourhood: four hundred
+    neighbourhoods over seventy thousand listings is a page load, not a report.
+    """
     if frame.empty:
         return []
 
-    budget = budget_series(frame, purpose, target_column)
-    working = frame.assign(_budget=budget)
+    working = frame.copy()
+    working["_budget"] = budget_series(frame, purpose, target_column)
+    if "_period" not in working.columns:
+        working["_period"] = (
+            period_series(working["first_seen_at"])
+            if "first_seen_at" in working.columns
+            else None
+        )
+
+    grouped = working.groupby("neighbourhood", sort=False)
+    target = grouped[target_column]
+    stats = pd.DataFrame(
+        {
+            "sample_size": target.size(),
+            "median": target.median(),
+            "p25": target.quantile(0.25),
+            "p75": target.quantile(0.75),
+            "median_budget_toman": grouped["_budget"].median(),
+        }
+    )
+    for column, name in (
+        ("area", "median_area"),
+        ("rooms", "median_rooms"),
+        ("building_age", "median_building_age"),
+        ("location_lat", "lat"),
+        ("location_long", "lon"),
+    ):
+        stats[name] = grouped[column].median() if column in working.columns else None
+
+    labels = month_labels(months)
+    by_month = (
+        working.dropna(subset=["_period"])
+        .groupby(["neighbourhood", "_period"])[target_column]
+        .agg(["size", "median"])
+        if working["_period"].notna().any()
+        else pd.DataFrame(columns=["size", "median"])
+    )
 
     rows: list[dict[str, Any]] = []
-    for title, group in working.groupby("neighbourhood", sort=False):
-        sample = int(len(group))
-        median_target = _median(group[target_column])
+    for title, stat in stats.iterrows():
+        median_target = _f(stat["median"])
         if median_target is None:
             continue
-        points = monthly_points(group, target_column=target_column, months=months)
+        if title in by_month.index.get_level_values(0):
+            months_for_hood = by_month.loc[title]
+            points = _points_from(
+                months_for_hood["size"], months_for_hood["median"], labels
+            )
+        else:
+            points = [{"period": p, "median": None, "sample_size": 0} for p in labels]
+        sample = int(stat["sample_size"])
         rows.append(
             {
                 "title": str(title),
                 "sample_size": sample,
                 "low_sample": sample < LOW_SAMPLE_THRESHOLD,
                 "median": median_target,
-                "p25": _quantile(group[target_column], 0.25),
-                "p75": _quantile(group[target_column], 0.75),
-                "median_budget_toman": _median(group["_budget"]),
-                "median_area": _median(group["area"]),
-                "median_rooms": _i(_median(group["rooms"])),
-                "median_building_age": _i(_median(group.get("building_age", pd.Series(dtype=float)))),
-                "lat": _median(group.get("location_lat", pd.Series(dtype=float))),
-                "lon": _median(group.get("location_long", pd.Series(dtype=float))),
+                "p25": _f(stat["p25"]),
+                "p75": _f(stat["p75"]),
+                "median_budget_toman": _f(stat["median_budget_toman"]),
+                "median_area": _f(stat["median_area"]),
+                "median_rooms": _i(stat["median_rooms"]),
+                "median_building_age": _i(stat["median_building_age"]),
+                "lat": _f(stat["lat"]),
+                "lon": _f(stat["lon"]),
                 "trend_pct": trend_pct(points),
             }
         )

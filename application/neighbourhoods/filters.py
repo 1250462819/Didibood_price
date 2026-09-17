@@ -61,6 +61,16 @@ def to_period(value: object) -> str | None:
     return stamp.tz_convert(TEHRAN).strftime("%Y-%m")
 
 
+def period_series(values: pd.Series) -> pd.Series:
+    """`to_period` for a whole column at once.
+
+    Row-by-row conversion of seventy thousand timestamps was most of the time
+    an overview request took; this does the same work in one pass.
+    """
+    stamps = pd.to_datetime(values, utc=True, errors="coerce")
+    return stamps.dt.tz_convert(TEHRAN).dt.strftime("%Y-%m")
+
+
 def budget_series(frame: pd.DataFrame, purpose: str, target_column: str) -> pd.Series:
     """What "budget" means for this purpose, in Toman.
 

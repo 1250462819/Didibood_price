@@ -192,3 +192,28 @@ def test_gross_yield_turns_a_deposit_into_rent_before_dividing():
 def test_yield_is_absent_rather_than_guessed_when_there_is_no_rent_data():
     assert rent_yield_pct(100_000_000, None) is None
     assert rent_yield_pct(100_000_000, pd.DataFrame()) is None
+
+
+def test_a_half_crawled_month_is_counted_but_not_priced():
+    """The crawl began mid-July; six days of listings against a full August read
+    as a fall in prices that never happened."""
+    frame = _rows(
+        [("پونک", 150_000_000, 80, 2, 2)] * 3  # the stub month
+        + [("پونک", 100_000_000, 80, 1, 2)] * 60
+        + [("پونک", 100_000_000, 80, 0, 2)] * 60
+    )
+    summary = city_summary(frame, target_column=TARGET, purpose="sale", months=3, neighbourhood_count=1)
+    stub = summary["monthly"][0]
+    assert stub["sample_size"] == 3
+    assert stub["median"] is None
+    assert summary["trend_pct"] == 0.0
+
+
+def test_a_full_month_still_counts_even_if_smaller_than_its_neighbour():
+    """Normal month-to-month variation must not be mistaken for a partial crawl."""
+    frame = _rows(
+        [("پونک", 100_000_000, 80, 1, 2)] * 30 + [("پونک", 110_000_000, 80, 0, 2)] * 60
+    )
+    summary = city_summary(frame, target_column=TARGET, purpose="sale", months=2, neighbourhood_count=1)
+    assert [point["median"] for point in summary["monthly"]] == [100_000_000, 110_000_000]
+    assert summary["trend_pct"] == pytest.approx(10.0)
