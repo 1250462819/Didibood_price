@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # Divar sometimes stores monthly rent in price_total when price_per_unit is empty.
     RENT_MISMAPPED_DEPOSIT_MAX_TOMAN: float = 100_000_000.0
 
+    # Neighbourhood analytics reads a prebuilt parquet; older than this and a
+    # refresh runs in the background while the stale copy is still served.
+    NEIGHBOURHOOD_CACHE_HOURS: int = 12
+    NEIGHBOURHOOD_MAX_MONTHS: int = 12
+
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["*"])
 
 

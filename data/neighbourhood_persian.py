@@ -72,6 +72,11 @@ GROUP BY district, label
 """
 
 
+def city_persian_name(city_slug: str) -> str | None:
+    """The city's own Persian name, e.g. tehran → تهران."""
+    return _CITY_FA_NAME.get((city_slug or "").strip().lower())
+
+
 def normalize_persian_neighbourhood(value: str | None) -> str:
     if not value:
         return ""

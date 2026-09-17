@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.v1.market_stats import router as market_stats_router
+from api.v1.neighborhoods import router as neighborhoods_router
 from api.v1.rent.router import router as rent_router
 from api.v1.sale.router import router as sale_router
 from config.settings import settings
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
                 "rent_predict": "/api/v1/rent/predict",
                 "rent_train": "/api/v1/rent/train",
                 "market_stats": "/api/v1/market-stats",
+                "neighborhoods": "/api/v1/neighborhoods",
             },
         }
 
@@ -55,5 +57,6 @@ def create_app() -> FastAPI:
     app.include_router(sale_router, prefix="/api/v1")
     app.include_router(rent_router, prefix="/api/v1")
     app.include_router(market_stats_router, prefix="/api/v1")
+    app.include_router(neighborhoods_router, prefix="/api/v1")
     logging.basicConfig(level=logging.DEBUG if settings.DEBUG else logging.INFO)
     return app

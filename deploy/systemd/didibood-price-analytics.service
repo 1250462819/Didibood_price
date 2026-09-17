@@ -1,0 +1,17 @@
+[Unit]
+Description=Rebuild Didibood Price neighbourhood analytics frames
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__DEPLOY_USER__
+Group=__DEPLOY_USER__
+WorkingDirectory=/opt/didibood/Didibood_Price
+EnvironmentFile=/opt/didibood/Didibood_Price/.env
+ExecStart=/opt/didibood/Didibood_Price/.venv/bin/python -m pricing refresh-analytics
+# Parsing every crawled listing is the heaviest thing this box runs; keep it
+# behind the API and the crawler rather than competing with them.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min

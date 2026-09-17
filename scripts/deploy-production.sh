@@ -153,6 +153,17 @@ sudo install -m 0644 -o root -g root "$UNIT_TMP" /etc/systemd/system/didibood-pr
 sudo systemctl daemon-reload
 sudo systemctl enable didibood-price
 
+# Neighbourhood analytics read a prebuilt frame; this timer keeps it fresh. The
+# API can rebuild it itself, but that would land on whoever opened the page.
+for unit in didibood-price-analytics.service didibood-price-analytics.timer; do
+  ANALYTICS_TMP="$(mktemp)"
+  sed "s|__DEPLOY_USER__|${DEPLOY_USER}|g" "deploy/systemd/${unit}" > "$ANALYTICS_TMP"
+  sudo install -m 0644 -o root -g root "$ANALYTICS_TMP" "/etc/systemd/system/${unit}"
+  rm -f "$ANALYTICS_TMP"
+done
+sudo systemctl daemon-reload
+sudo systemctl enable --now didibood-price-analytics.timer
+
 # ufw is first-match: an allow appended below a "DENY <port>/tcp from Anywhere" rule never fires.
 # Insert above that deny instead, and treat an existing-but-dead allow as missing so a redeploy
 # repairs it. head -1 takes the IPv4 rules; the "(v6)" copies sit lower at other positions.

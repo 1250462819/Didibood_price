@@ -64,6 +64,34 @@ WHERE plp.pdp_fetched = TRUE
   AND plp.first_seen_at >= %(since)s
 """
 
+# Neighbourhood analytics wants the whole crawled history, not a recent slice: the
+# page lets the reader choose a window of up to a year, and both crawl stamps are
+# needed — first_seen_at buckets the trend, last_seen_at says whether a listing is
+# still on the market.
+EXTRACT_ANALYTICS_SQL = """
+SELECT
+    plp.post_token,
+    plp.category_slug,
+    plp.listing_type,
+    plp.property_type,
+    plp.city_slug,
+    plp.city_name,
+    plp.location,
+    plp.geo_lat,
+    plp.geo_lon,
+    plp.price_total,
+    plp.price_per_unit,
+    pdp.district,
+    pdp.attributes,
+    plp.first_seen_at,
+    plp.last_seen_at
+FROM divar_plp plp
+INNER JOIN divar_pdp pdp ON pdp.post_token = plp.post_token
+WHERE plp.pdp_fetched = TRUE
+  AND plp.city_slug = %(city_slug)s
+  AND plp.category_slug = %(category_slug)s
+"""
+
 EXTRACT_COMPARABLES_SQL = """
 SELECT
     plp.post_token,
@@ -157,6 +185,20 @@ def extract_market_history_dataframe(
                     "category_slug": category_slug,
                     "since": since,
                 },
+            )
+            rows = cur.fetchall()
+
+    return _rows_to_dataframe(rows)
+
+
+def extract_analytics_dataframe(key: ModelKey) -> pd.DataFrame:
+    """Every crawled listing for this key, with both crawl stamps attached."""
+    category_slug = category_slug_for(key)
+    with psycopg.connect(settings.DATABASE_URL) as conn:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(
+                EXTRACT_ANALYTICS_SQL,
+                {"city_slug": key.city_slug, "category_slug": category_slug},
             )
             rows = cur.fetchall()
 

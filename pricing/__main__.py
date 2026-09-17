@@ -32,6 +32,28 @@ def train_cmd(city: str, property_type: str, purpose: str, refresh_data: bool) -
     click.echo(f"  saved={result.model_path}")
 
 
+@cli.command("refresh-analytics")
+@click.option("--city", "-c", default=None, type=click.Choice(SUPPORTED_CITIES))
+@click.option("--property-type", default="apartment", show_default=True)
+def refresh_analytics_cmd(city: str | None, property_type: str) -> None:
+    """Rebuild the parquet the neighbourhood analytics endpoints read.
+
+    Run it after a crawl: the API serves whatever this last wrote, and only
+    rebuilds on its own when the file is missing or has gone stale.
+    """
+    from application.neighbourhoods.dataset import refresh_analytics_frame
+
+    cities = [city] if city else list(SUPPORTED_CITIES)
+    for city_slug in cities:
+        for purpose in SUPPORTED_PURPOSES:
+            key = ModelKey(city_slug=city_slug, property_type=property_type, purpose=purpose)
+            try:
+                path = refresh_analytics_frame(key)
+                click.echo(f"{key.slug()} -> {path}")
+            except Exception as exc:  # one bad key must not stop the rest
+                click.echo(f"{key.slug()} FAILED: {exc}", err=True)
+
+
 @cli.command("train-all")
 @click.option("--refresh-data", is_flag=True)
 @click.option(
