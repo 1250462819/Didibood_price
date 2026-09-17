@@ -11,6 +11,7 @@ from application.neighbourhoods.filters import (
     NeighbourhoodFilters,
     apply_filters,
     coverage_start,
+    with_derived_columns,
 )
 from application.neighbourhoods.stats import (
     city_summary,
@@ -34,6 +35,10 @@ def _loaded(key: ModelKey, filters: NeighbourhoodFilters) -> tuple[AnalyticsFram
         filters,
         purpose=key.purpose,
         target_column=loaded.target_column,
+    )
+    # Derive once here, so the ranking and the city summary share the work.
+    filtered = with_derived_columns(
+        filtered, purpose=key.purpose, target_column=loaded.target_column
     )
     return loaded, filtered
 

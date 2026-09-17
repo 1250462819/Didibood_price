@@ -18,6 +18,7 @@ from application.neighbourhoods.filters import (
     budget_series,
     month_labels,
     period_series,
+    with_derived_columns,
 )
 
 #: A month needs this many listings before its median is allowed to move a trend
@@ -87,6 +88,8 @@ def _points_from(
     medians: pd.Series,
     labels: list[str],
 ) -> list[dict[str, Any]]:
+    counts.index = counts.index.astype(str)
+    medians.index = medians.index.astype(str)
     allowed = publishable_months(counts)
     points: list[dict[str, Any]] = []
     for label in labels:
@@ -140,14 +143,11 @@ def neighbourhood_rows(
     if frame.empty:
         return []
 
-    working = frame.copy()
-    working["_budget"] = budget_series(frame, purpose, target_column)
-    if "_period" not in working.columns:
-        working["_period"] = (
-            period_series(working["first_seen_at"])
-            if "first_seen_at" in working.columns
-            else None
-        )
+    working = (
+        frame
+        if "_budget" in frame.columns and "_period" in frame.columns
+        else with_derived_columns(frame, purpose=purpose, target_column=target_column)
+    )
 
     grouped = working.groupby("neighbourhood", sort=False)
     target = grouped[target_column]
@@ -228,7 +228,11 @@ def city_summary(
     neighbourhood_count: int,
 ) -> dict[str, Any]:
     points = monthly_points(frame, target_column=target_column, months=months)
-    budget = budget_series(frame, purpose, target_column)
+    budget = (
+        frame["_budget"]
+        if "_budget" in frame.columns
+        else budget_series(frame, purpose, target_column)
+    )
     return {
         "sample_size": int(len(frame)),
         "neighbourhood_count": neighbourhood_count,

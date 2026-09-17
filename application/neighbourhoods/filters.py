@@ -62,13 +62,16 @@ def to_period(value: object) -> str | None:
 
 
 def period_series(values: pd.Series) -> pd.Series:
-    """`to_period` for a whole column at once.
+    """The Tehran month each listing entered the market, for a whole column.
 
-    Row-by-row conversion of seventy thousand timestamps was most of the time
-    an overview request took; this does the same work in one pass.
+    Kept as pandas Periods rather than `YYYY-MM` strings: formatting seventy
+    thousand rows took longer than every aggregation that follows it, and only
+    the handful of group keys ever need to be read as text.
     """
     stamps = pd.to_datetime(values, utc=True, errors="coerce")
-    return stamps.dt.tz_convert(TEHRAN).dt.strftime("%Y-%m")
+    # Drop the zone deliberately after converting: a Period carries no zone,
+    # and the month has already been decided on the Tehran clock.
+    return stamps.dt.tz_convert(TEHRAN).dt.tz_localize(None).dt.to_period("M")
 
 
 def budget_series(frame: pd.DataFrame, purpose: str, target_column: str) -> pd.Series:
@@ -88,6 +91,28 @@ def budget_series(frame: pd.DataFrame, purpose: str, target_column: str) -> pd.S
         per_sqm = pd.to_numeric(frame.get(target_column), errors="coerce")
         return price.fillna(area * per_sqm)
     return pd.Series(index=frame.index, dtype="float64")
+
+
+def with_derived_columns(
+    frame: pd.DataFrame,
+    *,
+    purpose: str,
+    target_column: str,
+) -> pd.DataFrame:
+    """Attach the two columns every aggregate needs, once per request.
+
+    The month of market entry and the budget figure were each recomputed by the
+    ranking and again by the city summary — the same seventy thousand rows,
+    twice.
+    """
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    out["_budget"] = budget_series(frame, purpose, target_column)
+    out["_period"] = (
+        period_series(frame["first_seen_at"]) if "first_seen_at" in frame.columns else None
+    )
+    return out
 
 
 def apply_filters(
