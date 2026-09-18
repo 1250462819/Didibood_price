@@ -226,3 +226,37 @@ def test_a_city_row_carries_what_the_first_map_level_needs():
     assert CITY_LABELS_FA["tehran"] == "تهران"
     for slug in ("tehran", "mashhad", "isfahan"):
         assert slug in CITY_LABELS_FA
+
+
+def test_the_country_headline_is_pooled_not_averaged(monkeypatch):
+    """Three cities' medians averaged is not the median of the three cities."""
+    import pandas as pd
+
+    from application.neighbourhoods import read as read_module
+
+    cheap = _rows([("محلهٔ ارزان", 100_000_000, 80, 1, 2)] * 30)
+    dear = _rows([("محلهٔ گران", 500_000_000, 80, 1, 2)] * 10)
+
+    frames = {"tehran": dear, "mashhad": cheap, "isfahan": cheap}
+
+    class _Loaded:
+        def __init__(self, frame):
+            self.frame = frame
+            self.target_column = TARGET
+            self.built_at = pd.Timestamp.now('UTC').to_pydatetime()
+            self.stale = False
+
+    def fake_loaded(key, _filters):
+        frame = frames[key.city_slug]
+        return _Loaded(frame), frame
+
+    monkeypatch.setattr(read_module, "_loaded", fake_loaded)
+    payload = read_module.get_cities(NeighbourhoodFilters(months=6), purpose="sale")
+
+    total = payload["total"]
+    # 70 cheap listings against 10 dear ones: the pooled median is the cheap one,
+    # while the mean of the three city medians would be far above it.
+    assert total["median"] == 100_000_000
+    assert total["sample_size"] == 70
+    assert total["city_count"] == 3
+    assert total["spread_ratio"] == 5.0

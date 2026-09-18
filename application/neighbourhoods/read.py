@@ -175,6 +175,8 @@ def get_cities(
     state, not a market fact.
     """
     cities: list[dict[str, Any]] = []
+    frames: list[pd.DataFrame] = []
+    target_column: str | None = None
     for slug in SUPPORTED_CITIES:
         key = ModelKey(city_slug=slug, property_type=property_type, purpose=purpose)
         try:
@@ -184,6 +186,8 @@ def get_cities(
             continue
         if filtered.empty:
             continue
+        frames.append(filtered)
+        target_column = loaded.target_column
         rows = neighbourhood_rows(
             filtered,
             target_column=loaded.target_column,
@@ -214,12 +218,36 @@ def get_cities(
         )
 
     cities.sort(key=lambda row: row["median"] or 0, reverse=True)
+
+    # The headline above a country-wide map is the country, not its largest
+    # city. Recomputed over the pooled listings rather than averaged from the
+    # city medians: a median of medians is not a median.
+    total: dict[str, Any] | None = None
+    if frames and target_column:
+        pooled = pd.concat(frames, ignore_index=True)
+        total = city_summary(
+            pooled,
+            target_column=target_column,
+            purpose=purpose,
+            months=filters.months,
+            neighbourhood_count=sum(row["neighbourhood_count"] for row in cities),
+        )
+        total["city_count"] = len(cities)
+        dearest = cities[0]["median"] if cities else None
+        cheapest = cities[-1]["median"] if cities else None
+        total["spread_ratio"] = (
+            round(dearest / cheapest, 1) if dearest and cheapest and cheapest > 0 else None
+        )
+        total["dearest_city"] = cities[0]["label"] if cities else None
+        total["cheapest_city"] = cities[-1]["label"] if cities else None
+
     return {
         "purpose": purpose,
         "property_type": property_type,
         "months": filters.months,
         "metric": "price_per_sqm_toman" if purpose == "sale" else "equivalent_deposit_toman",
         "cities": cities,
+        "total": total,
     }
 
 

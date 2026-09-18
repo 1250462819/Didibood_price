@@ -162,6 +162,15 @@ class CityRow(BaseModel):
     lon: float | None
 
 
+class CitiesTotal(CitySummary):
+    """Every covered city pooled — the headline above a country-wide map."""
+
+    city_count: int
+    spread_ratio: float | None
+    dearest_city: str | None
+    cheapest_city: str | None
+
+
 class NeighbourhoodCitiesResponse(BaseModel):
     """The map's first level: every city the crawl covers, dearest first."""
 
@@ -170,3 +179,4 @@ class NeighbourhoodCitiesResponse(BaseModel):
     months: int
     metric: str
     cities: list[CityRow]
+    total: CitiesTotal | None = None
