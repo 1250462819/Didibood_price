@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     NEIGHBOURHOOD_CACHE_HOURS: int = 12
     NEIGHBOURHOOD_MAX_MONTHS: int = 12
 
+    # Model management (list / train / activate) is for the admin panel only,
+    # reached through the backend. The port is firewalled; this is the second
+    # lock. Empty disables the check — for local development only.
+    MODELS_ADMIN_TOKEN: str = ""
+
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["*"])
 
 
