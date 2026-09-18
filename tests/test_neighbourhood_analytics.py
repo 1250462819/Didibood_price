@@ -217,3 +217,12 @@ def test_a_full_month_still_counts_even_if_smaller_than_its_neighbour():
     summary = city_summary(frame, target_column=TARGET, purpose="sale", months=2, neighbourhood_count=1)
     assert [point["median"] for point in summary["monthly"]] == [100_000_000, 110_000_000]
     assert summary["trend_pct"] == pytest.approx(10.0)
+
+
+def test_a_city_row_carries_what_the_first_map_level_needs():
+    """Before a city is picked the map has one mark per city, not per neighbourhood."""
+    from application.neighbourhoods.read import CITY_LABELS_FA
+
+    assert CITY_LABELS_FA["tehran"] == "تهران"
+    for slug in ("tehran", "mashhad", "isfahan"):
+        assert slug in CITY_LABELS_FA

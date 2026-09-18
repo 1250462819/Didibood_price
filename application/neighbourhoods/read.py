@@ -23,7 +23,7 @@ from data.neighbourhood_persian import (
     normalize_persian_neighbourhood,
     resolve_request_neighbourhood,
 )
-from domain.model_key import ModelKey
+from domain.model_key import SUPPORTED_CITIES, ModelKey
 
 logger = logging.getLogger(__name__)
 
@@ -152,3 +152,79 @@ def get_titles(key: ModelKey) -> list[str]:
         return []
     counts = loaded.frame.groupby("neighbourhood").size().sort_values(ascending=False)
     return [str(title) for title in counts.index]
+
+
+#: Persian labels for the cities the crawl covers well enough to publish.
+CITY_LABELS_FA = {
+    "tehran": "تهران",
+    "mashhad": "مشهد",
+    "isfahan": "اصفهان",
+}
+
+
+def get_cities(
+    filters: NeighbourhoodFilters,
+    *,
+    purpose: str,
+    property_type: str = "apartment",
+) -> dict[str, Any]:
+    """One row per city — what the map shows before anyone picks a city.
+
+    A city with no built frame is skipped rather than reported as empty: it
+    means the analytics have not been built for it yet, which is a deployment
+    state, not a market fact.
+    """
+    cities: list[dict[str, Any]] = []
+    for slug in SUPPORTED_CITIES:
+        key = ModelKey(city_slug=slug, property_type=property_type, purpose=purpose)
+        try:
+            loaded, filtered = _loaded(key, filters)
+        except Exception:
+            logger.warning("city summary unavailable city=%s", slug, exc_info=True)
+            continue
+        if filtered.empty:
+            continue
+        rows = neighbourhood_rows(
+            filtered,
+            target_column=loaded.target_column,
+            purpose=purpose,
+            months=filters.months,
+        )
+        summary = city_summary(
+            filtered,
+            target_column=loaded.target_column,
+            purpose=purpose,
+            months=filters.months,
+            neighbourhood_count=len(rows),
+        )
+        cities.append(
+            {
+                "city": slug,
+                "label": CITY_LABELS_FA.get(slug, slug),
+                "sample_size": summary["sample_size"],
+                "neighbourhood_count": summary["neighbourhood_count"],
+                "median": summary["median"],
+                "p25": summary["p25"],
+                "p75": summary["p75"],
+                "median_budget_toman": summary["median_budget_toman"],
+                "trend_pct": summary["trend_pct"],
+                "lat": _median_of(filtered, "location_lat"),
+                "lon": _median_of(filtered, "location_long"),
+            }
+        )
+
+    cities.sort(key=lambda row: row["median"] or 0, reverse=True)
+    return {
+        "purpose": purpose,
+        "property_type": property_type,
+        "months": filters.months,
+        "metric": "price_per_sqm_toman" if purpose == "sale" else "equivalent_deposit_toman",
+        "cities": cities,
+    }
+
+
+def _median_of(frame: pd.DataFrame, column: str) -> float | None:
+    if column not in frame.columns:
+        return None
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    return float(values.median()) if not values.empty else None

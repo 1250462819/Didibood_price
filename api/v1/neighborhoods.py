@@ -4,10 +4,16 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from application.neighbourhoods.filters import NeighbourhoodFilters
-from application.neighbourhoods.read import get_detail, get_overview, get_titles
+from application.neighbourhoods.read import (
+    get_cities,
+    get_detail,
+    get_overview,
+    get_titles,
+)
 from config.settings import settings
 from domain.model_key import SUPPORTED_CITIES, ModelKey
 from schemas.neighbourhoods import (
+    NeighbourhoodCitiesResponse,
     NeighbourhoodDetailResponse,
     NeighbourhoodOverviewResponse,
     NeighbourhoodTitlesResponse,
@@ -139,6 +145,46 @@ def neighbourhood_detail(
     if payload is None:
         raise HTTPException(status_code=404, detail="محله‌ای با این نام در این فیلترها پیدا نشد.")
     return NeighbourhoodDetailResponse(**payload)
+
+
+@router.get("/cities", response_model=NeighbourhoodCitiesResponse)
+def neighbourhood_cities(
+    purpose: Purpose = Query("sale"),
+    property_type: PropertyType = Query("apartment"),
+    months: int = Query(6, ge=1, le=24),
+    min_area: float | None = Query(None, ge=0),
+    max_area: float | None = Query(None, ge=0),
+    min_rooms: int | None = Query(None, ge=0, le=10),
+    max_rooms: int | None = Query(None, ge=0, le=10),
+    max_building_age: int | None = Query(None, ge=0, le=100),
+    min_budget: float | None = Query(None, ge=0),
+    max_budget: float | None = Query(None, ge=0),
+    has_parking: bool | None = Query(None),
+    has_elevator: bool | None = Query(None),
+    has_storage: bool | None = Query(None),
+    has_balcony: bool | None = Query(None),
+) -> NeighbourhoodCitiesResponse:
+    """Every covered city under the same filters — the map before a city is picked."""
+    months = min(months, settings.NEIGHBOURHOOD_MAX_MONTHS)
+    payload = get_cities(
+        _filters(
+            months,
+            min_area,
+            max_area,
+            min_rooms,
+            max_rooms,
+            max_building_age,
+            min_budget,
+            max_budget,
+            has_parking,
+            has_elevator,
+            has_storage,
+            has_balcony,
+        ),
+        purpose=purpose,
+        property_type=property_type,
+    )
+    return NeighbourhoodCitiesResponse(**payload)
 
 
 @router.get("/titles", response_model=NeighbourhoodTitlesResponse)

@@ -146,3 +146,27 @@ class NeighbourhoodTitlesResponse(BaseModel):
     purpose: Purpose
     property_type: PropertyType
     titles: list[str]
+
+
+class CityRow(BaseModel):
+    city: str
+    label: str
+    sample_size: int
+    neighbourhood_count: int
+    median: float | None
+    p25: float | None
+    p75: float | None
+    median_budget_toman: float | None
+    trend_pct: float | None
+    lat: float | None
+    lon: float | None
+
+
+class NeighbourhoodCitiesResponse(BaseModel):
+    """The map's first level: every city the crawl covers, dearest first."""
+
+    purpose: Purpose
+    property_type: PropertyType
+    months: int
+    metric: str
+    cities: list[CityRow]
