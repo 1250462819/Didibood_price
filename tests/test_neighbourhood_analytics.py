@@ -260,3 +260,188 @@ def test_the_country_headline_is_pooled_not_averaged(monkeypatch):
     assert total["sample_size"] == 70
     assert total["city_count"] == 3
     assert total["spread_ratio"] == 5.0
+
+
+# --- «میانگین»: trimmed means and what an amenity is worth -------------------
+
+from application.neighbourhoods.stats import (  # noqa: E402
+    amenity_split,
+    grouped_trimmed_mean,
+    like_for_like_premium,
+    trimmed_mean,
+)
+from schemas.neighbourhoods import (  # noqa: E402
+    NeighbourhoodDetailResponse,
+    NeighbourhoodOverviewResponse,
+)
+
+
+def test_the_average_ignores_the_extreme_tenth_at_each_end():
+    """The page says «میانگین», so it is a mean — but one penthouse must not move it."""
+    values = pd.Series([100.0] * 9 + [10_000.0])
+    assert trimmed_mean(values) == pytest.approx(100.0)
+
+
+def test_a_trimmed_mean_of_nothing_is_none():
+    assert trimmed_mean(pd.Series([], dtype="float64")) is None
+
+
+def test_grouped_trimmed_mean_is_per_neighbourhood():
+    frame = pd.DataFrame(
+        {"neighbourhood": ["a"] * 10 + ["b"] * 10, "v": [10.0] * 9 + [1000.0] + [20.0] * 10}
+    )
+    means = grouped_trimmed_mean(frame, "neighbourhood", "v")
+    assert means["a"] == pytest.approx(10.0)
+    assert means["b"] == pytest.approx(20.0)
+
+
+def _amenity_frame(with_price: float, without_price: float, n_with: int, n_without: int, title: str = "x"):
+    rows = [{"neighbourhood": title, TARGET: with_price, "has_parking": 1}] * n_with
+    rows += [{"neighbourhood": title, TARGET: without_price, "has_parking": 0}] * n_without
+    return pd.DataFrame(rows)
+
+
+def test_amenity_split_reports_both_sides_and_the_premium():
+    split = amenity_split(_amenity_frame(120.0, 100.0, 8, 6), "has_parking", TARGET)
+    assert split["with_sample"] == 8
+    assert split["without_sample"] == 6
+    assert split["mean_with"] == pytest.approx(120.0)
+    assert split["mean_without"] == pytest.approx(100.0)
+    assert split["premium_pct"] == pytest.approx(20.0)
+    assert split["with_share"] == pytest.approx(8 / 14)
+
+
+def test_amenity_split_withholds_a_premium_below_five_on_either_side():
+    split = amenity_split(_amenity_frame(120.0, 100.0, 8, 4), "has_parking", TARGET)
+    assert split["premium_pct"] is None
+    assert split["mean_without"] == pytest.approx(100.0)
+
+
+def test_like_for_like_premium_compares_inside_each_neighbourhood():
+    """Parking is common in the dear area and rare in the cheap one. Pooled, that
+    reads as parking doubling the price; inside each area it adds 10%."""
+    frame = pd.concat(
+        [
+            _amenity_frame(330.0, 300.0, 20, 5, title="dear"),
+            _amenity_frame(110.0, 100.0, 5, 20, title="cheap"),
+        ],
+        ignore_index=True,
+    )
+    assert amenity_split(frame, "has_parking", TARGET)["premium_pct"] > 90
+    assert like_for_like_premium(frame, "has_parking", TARGET) == pytest.approx(10.0)
+
+
+def test_overview_rows_carry_means_and_amenity_splits(frame):
+    rows = {
+        row["title"]: row
+        for row in neighbourhood_rows(frame, target_column=TARGET, purpose="sale", months=6)
+    }
+    elahieh = rows["الهیه"]
+    assert elahieh["mean"] == pytest.approx(500_000_000)
+    assert elahieh["mean_area"] == pytest.approx(120)
+    assert elahieh["mean_budget_toman"] == pytest.approx(500_000_000 * 120)
+    assert set(elahieh["parking"]) >= {"with_share", "mean_with", "mean_without", "premium_pct"}
+    assert elahieh["parking"]["with_share"] == pytest.approx(1.0)
+    # Every listing in the fixture has parking: nothing to compare against.
+    assert elahieh["parking"]["premium_pct"] is None
+
+
+def test_city_summary_carries_means_and_a_like_for_like_parking_premium(frame):
+    summary = city_summary(frame, target_column=TARGET, purpose="sale", months=6, neighbourhood_count=3)
+    assert summary["mean"] is not None
+    assert summary["mean_area"] is not None
+    assert summary["mean_budget_toman"] is not None
+    assert "like_for_like_pct" in summary["parking"]
+    assert "like_for_like_pct" in summary["elevator"]
+
+
+def test_detail_carries_means_on_price_bands_and_amenities(frame):
+    subset = frame[frame["neighbourhood"] == "الهیه"]
+    rows = neighbourhood_rows(frame, target_column=TARGET, purpose="sale", months=6)
+    detail = neighbourhood_detail(
+        subset,
+        title="الهیه",
+        target_column=TARGET,
+        purpose="sale",
+        filters=NeighbourhoodFilters(months=6),
+        rows=rows,
+    )
+    assert detail["price"]["mean"] == pytest.approx(500_000_000)
+    assert detail["price"]["mean_area"] == pytest.approx(120)
+    assert detail["price"]["mean_budget_toman"] == pytest.approx(500_000_000 * 120)
+    assert detail["by_area"] and all("mean" in band for band in detail["by_area"])
+    assert detail["by_rooms"] and all("mean" in band for band in detail["by_rooms"])
+
+
+def test_amenity_rows_carry_mean_based_premiums():
+    frame = _rows([("پونک", 120_000_000, 80, 1, 2)] * 8 + [("پونک", 100_000_000, 80, 1, 2)] * 6)
+    frame.loc[8:, "has_parking"] = 0
+    rows = neighbourhood_rows(frame, target_column=TARGET, purpose="sale", months=6)
+    detail = neighbourhood_detail(
+        frame,
+        title="پونک",
+        target_column=TARGET,
+        purpose="sale",
+        filters=NeighbourhoodFilters(months=6),
+        rows=rows,
+    )
+    parking = next(row for row in detail["amenities"] if row["key"] == "has_parking")
+    assert parking["mean_with"] == pytest.approx(120_000_000)
+    assert parking["mean_without"] == pytest.approx(100_000_000)
+    assert parking["mean_premium_pct"] == pytest.approx(20.0)
+
+
+def test_the_response_models_keep_the_new_fields(frame):
+    """FastAPI drops any field a response model does not declare — silently."""
+    rows = neighbourhood_rows(frame, target_column=TARGET, purpose="sale", months=6)
+    summary = city_summary(frame, target_column=TARGET, purpose="sale", months=6, neighbourhood_count=3)
+    meta = {
+        "city": "tehran",
+        "purpose": "sale",
+        "property_type": "apartment",
+        "months": 6,
+        "metric": "price_per_sqm_toman",
+        "filters": {},
+        "data_built_at": "2026-09-21T00:00:00+00:00",
+        "coverage_start": "2026-07",
+        "total_listings": len(frame),
+    }
+    dumped = NeighbourhoodOverviewResponse(**meta, summary=summary, neighbourhoods=rows).model_dump(
+        by_alias=True
+    )
+    assert dumped["neighbourhoods"][0]["mean"] is not None
+    assert dumped["neighbourhoods"][0]["parking"]["with_share"] is not None
+    assert "like_for_like_pct" in dumped["summary"]["parking"]
+
+    detail = neighbourhood_detail(
+        frame[frame["neighbourhood"] == "الهیه"],
+        title="الهیه",
+        target_column=TARGET,
+        purpose="sale",
+        filters=NeighbourhoodFilters(months=6),
+        rows=rows,
+    )
+    dumped_detail = NeighbourhoodDetailResponse(**meta, neighbourhood=detail).model_dump(by_alias=True)
+    assert dumped_detail["neighbourhood"]["price"]["mean"] is not None
+    assert "mean" in dumped_detail["neighbourhood"]["by_area"][0]
+
+
+def test_a_city_row_carries_its_average(monkeypatch):
+    from application.neighbourhoods import read as read_module
+
+    frames = {
+        "tehran": _rows([("الف", 300_000_000, 80, 1, 2)] * 12),
+        "mashhad": _rows([("ب", 100_000_000, 80, 1, 2)] * 12),
+        "isfahan": _rows([("ج", 150_000_000, 80, 1, 2)] * 12),
+    }
+
+    class _Loaded:
+        def __init__(self, frame):
+            self.frame = frame
+            self.target_column = TARGET
+
+    monkeypatch.setattr(read_module, "_loaded", lambda key, _f: (_Loaded(frames[key.city_slug]), frames[key.city_slug]))
+    payload = read_module.get_cities(NeighbourhoodFilters(months=6), purpose="sale")
+    by_city = {row["city"]: row for row in payload["cities"]}
+    assert by_city["tehran"]["mean"] == pytest.approx(300_000_000)
+    assert by_city["mashhad"]["mean"] == pytest.approx(100_000_000)

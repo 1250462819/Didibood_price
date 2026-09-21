@@ -74,6 +74,7 @@ def get_overview(key: ModelKey, filters: NeighbourhoodFilters) -> dict[str, Any]
         purpose=key.purpose,
         months=filters.months,
         neighbourhood_count=len(rows),
+        rows=rows,
     )
     return {**_meta(loaded, filtered, filters), "summary": summary, "neighbourhoods": rows}
 
@@ -200,6 +201,7 @@ def get_cities(
             purpose=purpose,
             months=filters.months,
             neighbourhood_count=len(rows),
+            rows=rows,
         )
         cities.append(
             {
@@ -208,6 +210,7 @@ def get_cities(
                 "sample_size": summary["sample_size"],
                 "neighbourhood_count": summary["neighbourhood_count"],
                 "median": summary["median"],
+                "mean": summary["mean"],
                 "p25": summary["p25"],
                 "p75": summary["p75"],
                 "median_budget_toman": summary["median_budget_toman"],

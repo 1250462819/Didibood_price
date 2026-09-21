@@ -42,6 +42,18 @@ AMENITIES = (
     ("has_balcony", "بالکن"),
 )
 
+#: The page calls its headline «میانگین», so it is a mean — but the cheapest and
+#: the dearest tenth of each group are left out first, or one penthouse would
+#: move a whole neighbourhood.
+TRIM_SHARE = 0.10
+
+#: Fewer listings than this on either side of an amenity and the gap between
+#: the two sides is noise, not a premium.
+MIN_AMENITY_SIDE = 5
+
+#: The amenities every ranking row carries, keyed by the name the row uses.
+ROW_AMENITIES = (("has_parking", "parking"), ("has_elevator", "elevator"))
+
 
 def _f(value: Any) -> float | None:
     if value is None:
@@ -72,6 +84,123 @@ def _pct_change(old: float | None, new: float | None) -> float | None:
     if not old or not new or old <= 0:
         return None
     return _f((new - old) / old * 100.0)
+
+
+def trimmed_mean(series: pd.Series, share: float = TRIM_SHARE) -> float | None:
+    """Mean of the values between the `share` and `1 - share` quantiles."""
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    if values.empty:
+        return None
+    low, high = values.quantile(share), values.quantile(1 - share)
+    kept = values[(values >= low) & (values <= high)]
+    return _f(kept.mean()) if not kept.empty else _f(values.mean())
+
+
+def grouped_trimmed_mean(
+    frame: pd.DataFrame,
+    by: str | list[str],
+    column: str,
+    share: float = TRIM_SHARE,
+) -> pd.Series:
+    """`trimmed_mean` per group, in grouped passes rather than one call per group."""
+    values = pd.to_numeric(frame[column], errors="coerce")
+    keys = [frame[key] for key in by] if isinstance(by, list) else frame[by]
+    grouped = values.groupby(keys)
+    low = grouped.transform("quantile", share)
+    high = grouped.transform("quantile", 1 - share)
+    return values.where((values >= low) & (values <= high)).groupby(keys).mean()
+
+
+def _split(
+    with_sample: int,
+    without_sample: int,
+    mean_with: float | None,
+    mean_without: float | None,
+) -> dict[str, Any]:
+    known = with_sample + without_sample
+    enough = with_sample >= MIN_AMENITY_SIDE and without_sample >= MIN_AMENITY_SIDE
+    return {
+        "with_share": _f(with_sample / known) if known else None,
+        "with_sample": int(with_sample),
+        "without_sample": int(without_sample),
+        "mean_with": mean_with,
+        "mean_without": mean_without,
+        "premium_pct": _pct_change(mean_without, mean_with) if enough else None,
+    }
+
+
+def amenity_split(frame: pd.DataFrame, column: str, target_column: str) -> dict[str, Any]:
+    """Listings with the amenity against those without, on the average price.
+
+    Not a causal claim: a building with a lift differs in more ways than the lift.
+    """
+    if frame.empty or column not in frame.columns:
+        return _split(0, 0, None, None)
+    flags = pd.to_numeric(frame[column], errors="coerce")
+    with_it, without = frame[flags == 1], frame[flags == 0]
+    return _split(
+        len(with_it),
+        len(without),
+        trimmed_mean(with_it[target_column]) if len(with_it) else None,
+        trimmed_mean(without[target_column]) if len(without) else None,
+    )
+
+
+def grouped_amenity_splits(
+    frame: pd.DataFrame,
+    column: str,
+    target_column: str,
+) -> dict[str, dict[str, Any]]:
+    """`amenity_split` for every neighbourhood at once."""
+    if frame.empty or column not in frame.columns:
+        return {}
+    flags = pd.to_numeric(frame[column], errors="coerce")
+    hoods = frame["neighbourhood"]
+    with_counts = (flags == 1).groupby(hoods).sum()
+    without_counts = (flags == 0).groupby(hoods).sum()
+    keyed = frame.assign(_flag=flags).dropna(subset=["_flag"])
+    means = (
+        grouped_trimmed_mean(keyed, ["neighbourhood", "_flag"], target_column)
+        if not keyed.empty
+        else pd.Series(dtype="float64")
+    )
+
+    splits: dict[str, dict[str, Any]] = {}
+    for title in with_counts.index:
+        splits[str(title)] = _split(
+            int(with_counts.get(title, 0)),
+            int(without_counts.get(title, 0)),
+            _f(means.get((title, 1.0))),
+            _f(means.get((title, 0.0))),
+        )
+    return splits
+
+
+def _weighted_premium(splits: list[dict[str, Any]]) -> float | None:
+    """Listing-weighted average of within-neighbourhood premiums.
+
+    Each neighbourhood weighs as much as its thinner side: a premium read off
+    five listings without parking should not count like one read off fifty.
+    """
+    total_weight = 0.0
+    weighted = 0.0
+    for split in splits:
+        if split.get("premium_pct") is None:
+            continue
+        weight = float(min(split["with_sample"], split["without_sample"]))
+        weighted += split["premium_pct"] * weight
+        total_weight += weight
+    return _f(weighted / total_weight) if total_weight else None
+
+
+def like_for_like_premium(frame: pd.DataFrame, column: str, target_column: str) -> float | None:
+    """What the amenity adds *inside* a neighbourhood, averaged over the city.
+
+    The pooled split mostly measures where the amenity is common: parking is
+    standard in the dear north and rare in the cheap south, so "all listings with
+    parking against all without" says parking nearly doubles the price.
+    """
+    return _weighted_premium(list(grouped_amenity_splits(frame, column, target_column).values()))
 
 
 def publishable_months(counts: pd.Series) -> set[str]:
@@ -168,6 +297,20 @@ def neighbourhood_rows(
         ("location_long", "lon"),
     ):
         stats[name] = grouped[column].median() if column in working.columns else None
+    for column, name in (
+        (target_column, "mean"),
+        ("area", "mean_area"),
+        ("_budget", "mean_budget_toman"),
+    ):
+        stats[name] = (
+            grouped_trimmed_mean(working, "neighbourhood", column)
+            if column in working.columns
+            else None
+        )
+    amenity_splits = {
+        name: grouped_amenity_splits(working, column, target_column)
+        for column, name in ROW_AMENITIES
+    }
 
     labels = month_labels(months)
     by_month = (
@@ -206,6 +349,13 @@ def neighbourhood_rows(
                 "lat": _f(stat["lat"]),
                 "lon": _f(stat["lon"]),
                 "trend_pct": trend_pct(points),
+                "mean": _f(stat.get("mean")),
+                "mean_area": _f(stat.get("mean_area")),
+                "mean_budget_toman": _f(stat.get("mean_budget_toman")),
+                **{
+                    name: splits.get(str(title), _split(0, 0, None, None))
+                    for name, splits in amenity_splits.items()
+                },
             }
         )
 
@@ -226,13 +376,30 @@ def city_summary(
     purpose: str,
     months: int,
     neighbourhood_count: int,
+    rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    """The city headline. Pass the ranking `rows` when they exist: the
+    like-for-like amenity premium is read off their per-neighbourhood splits
+    instead of being computed a second time."""
     points = monthly_points(frame, target_column=target_column, months=months)
     budget = (
         frame["_budget"]
         if "_budget" in frame.columns
         else budget_series(frame, purpose, target_column)
     )
+
+    amenities: dict[str, dict[str, Any]] = {}
+    for column, name in ROW_AMENITIES:
+        within = (
+            _weighted_premium([row[name] for row in rows if row.get(name)])
+            if rows is not None
+            else like_for_like_premium(frame, column, target_column)
+        )
+        amenities[name] = {
+            **amenity_split(frame, column, target_column),
+            "like_for_like_pct": within,
+        }
+
     return {
         "sample_size": int(len(frame)),
         "neighbourhood_count": neighbourhood_count,
@@ -241,6 +408,10 @@ def city_summary(
         "p75": _quantile(frame[target_column], 0.75) if not frame.empty else None,
         "median_budget_toman": _median(budget) if not frame.empty else None,
         "median_area": _median(frame["area"]) if not frame.empty else None,
+        "mean": trimmed_mean(frame[target_column]) if not frame.empty else None,
+        "mean_area": trimmed_mean(frame["area"]) if not frame.empty else None,
+        "mean_budget_toman": trimmed_mean(budget) if not frame.empty else None,
+        **amenities,
         "trend_pct": trend_pct(points),
         "monthly": points,
     }
@@ -276,6 +447,7 @@ def _band_rows(
                 "label": _band_label(low, high, unit),
                 "sample_size": int(len(subset)),
                 "median": _median(subset[target_column]),
+                "mean": trimmed_mean(subset[target_column]),
             }
         )
     return rows
@@ -296,6 +468,7 @@ def _rooms_rows(frame: pd.DataFrame, *, target_column: str) -> list[dict[str, An
                 "rooms": value,
                 "sample_size": int(len(subset)),
                 "median": _median(subset[target_column]),
+                "mean": trimmed_mean(subset[target_column]),
             }
         )
     return rows
@@ -316,6 +489,8 @@ def _amenity_rows(frame: pd.DataFrame, *, target_column: str) -> list[dict[str, 
             continue
         median_with = _median(with_it[target_column])
         median_without = _median(without[target_column])
+        mean_with = trimmed_mean(with_it[target_column])
+        mean_without = trimmed_mean(without[target_column])
         rows.append(
             {
                 "label": label,
@@ -325,6 +500,9 @@ def _amenity_rows(frame: pd.DataFrame, *, target_column: str) -> list[dict[str, 
                 "median_with": median_with,
                 "median_without": median_without,
                 "premium_pct": _pct_change(median_without, median_with),
+                "mean_with": mean_with,
+                "mean_without": mean_without,
+                "mean_premium_pct": _pct_change(mean_without, mean_with),
             }
         )
     return rows
@@ -477,6 +655,9 @@ def neighbourhood_detail(
             "p90": _quantile(frame[target_column], 0.90) if not frame.empty else None,
             "median_budget_toman": _median(budget) if not frame.empty else None,
             "median_area": _median(frame["area"]) if not frame.empty else None,
+            "mean": trimmed_mean(frame[target_column]) if not frame.empty else None,
+            "mean_area": trimmed_mean(frame["area"]) if not frame.empty else None,
+            "mean_budget_toman": trimmed_mean(budget) if not frame.empty else None,
         },
         "rank": row["rank"] if row else None,
         "percentile": row["percentile"] if row else None,

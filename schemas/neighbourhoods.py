@@ -11,6 +11,27 @@ from pydantic import BaseModel, Field
 from schemas.price import PropertyType, Purpose
 
 
+class AmenitySplit(BaseModel):
+    """Listings with an amenity against those without, on the trimmed mean.
+
+    `premium_pct` is withheld below five listings on either side."""
+
+    with_share: float | None = None
+    with_sample: int = 0
+    without_sample: int = 0
+    mean_with: float | None = None
+    mean_without: float | None = None
+    premium_pct: float | None = None
+
+
+class CityAmenitySplit(AmenitySplit):
+    like_for_like_pct: float | None = Field(
+        None,
+        description="Listing-weighted average of the within-neighbourhood premiums — "
+        "what the amenity adds inside one neighbourhood, not where it is common.",
+    )
+
+
 class MonthlyPoint(BaseModel):
     period: str = Field(..., description="YYYY-MM of market entry (Tehran calendar)")
     median: float | None = Field(None, description="None when the month is too thin to publish")
@@ -35,6 +56,11 @@ class NeighbourhoodRow(BaseModel):
     trend_pct: float | None
     rank: int
     percentile: float | None
+    mean: float | None = Field(None, description="10–90% trimmed mean of the metric")
+    mean_area: float | None = None
+    mean_budget_toman: float | None = None
+    parking: AmenitySplit | None = None
+    elevator: AmenitySplit | None = None
 
 
 class CitySummary(BaseModel):
@@ -47,6 +73,11 @@ class CitySummary(BaseModel):
     median_area: float | None
     trend_pct: float | None
     monthly: list[MonthlyPoint]
+    mean: float | None = Field(None, description="10–90% trimmed mean of the metric")
+    mean_area: float | None = None
+    mean_budget_toman: float | None = None
+    parking: CityAmenitySplit | None = None
+    elevator: CityAmenitySplit | None = None
 
 
 class AnalyticsMeta(BaseModel):
@@ -71,6 +102,7 @@ class BandRow(BaseModel):
     sample_size: int
     median: float | None
     rooms: int | None = None
+    mean: float | None = None
 
 
 class AmenityRow(BaseModel):
@@ -81,6 +113,9 @@ class AmenityRow(BaseModel):
     median_with: float | None
     median_without: float | None
     premium_pct: float | None
+    mean_with: float | None = None
+    mean_without: float | None = None
+    mean_premium_pct: float | None = None
 
 
 class HistogramBucket(BaseModel):
@@ -116,6 +151,9 @@ class NeighbourhoodPrice(BaseModel):
     p90: float | None
     median_budget_toman: float | None
     median_area: float | None
+    mean: float | None = Field(None, description="10–90% trimmed mean of the metric")
+    mean_area: float | None = None
+    mean_budget_toman: float | None = None
 
 
 class NeighbourhoodDetail(BaseModel):
@@ -154,6 +192,7 @@ class CityRow(BaseModel):
     sample_size: int
     neighbourhood_count: int
     median: float | None
+    mean: float | None = None
     p25: float | None
     p75: float | None
     median_budget_toman: float | None
