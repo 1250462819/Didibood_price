@@ -54,6 +54,37 @@ def refresh_analytics_cmd(city: str | None, property_type: str) -> None:
                 click.echo(f"{key.slug()} FAILED: {exc}", err=True)
 
 
+@cli.command("precompute-answers")
+@click.option("--city", "-c", default=None, type=click.Choice(SUPPORTED_CITIES))
+@click.option("--property-type", default="apartment", show_default=True)
+@click.option("--purpose", default="sale", show_default=True, type=click.Choice(SUPPORTED_PURPOSES))
+@click.option("--skip-details", is_flag=True, help="Overviews and the city list only.")
+@click.option("--refresh-data", is_flag=True, help="Re-extract the frames from PostgreSQL first.")
+def precompute_answers_cmd(
+    city: str | None, property_type: str, purpose: str, skip_details: bool, refresh_data: bool
+) -> None:
+    """Compute the city page's answers once, so requests are file reads.
+
+    Run nightly after `refresh-analytics` (the systemd unit does both). Answers
+    older than a day and a half are ignored by the API, so a night that fails
+    makes the page slow again rather than wrong.
+    """
+    from application.neighbourhoods.precompute import run_precompute
+
+    report = run_precompute(
+        [city] if city else None,
+        purpose=purpose,
+        property_type=property_type,
+        with_details=not skip_details,
+        refresh_frames=refresh_data,
+    )
+    click.echo(report.line())
+    for failure in report.failures[:10]:
+        click.echo(f"  FAILED {failure}", err=True)
+    if report.failures:
+        raise SystemExit(1)
+
+
 @cli.command("train-all")
 @click.option("--refresh-data", is_flag=True)
 @click.option(

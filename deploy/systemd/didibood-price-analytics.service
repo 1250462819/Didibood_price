@@ -1,5 +1,5 @@
 [Unit]
-Description=Rebuild Didibood Price neighbourhood analytics frames
+Description=Rebuild Didibood Price neighbourhood frames, then precompute the city page's answers
 After=network-online.target
 Wants=network-online.target
 
@@ -10,8 +10,12 @@ Group=__DEPLOY_USER__
 WorkingDirectory=/opt/didibood/Didibood_Price
 EnvironmentFile=/opt/didibood/Didibood_Price/.env
 ExecStart=/opt/didibood/Didibood_Price/.venv/bin/python -m pricing refresh-analytics
+# Then answer, once, everything the city page can ask: its filter grid, every
+# neighbourhood's report and the city list. The API serves these as file reads
+# instead of aggregating tens of thousands of listings per visit.
+ExecStart=/opt/didibood/Didibood_Price/.venv/bin/python -m pricing precompute-answers
 # Parsing every crawled listing is the heaviest thing this box runs; keep it
 # behind the API and the crawler rather than competing with them.
 Nice=10
 IOSchedulingClass=idle
-TimeoutStartSec=30min
+TimeoutStartSec=90min

@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly rebuild of the neighbourhood analytics frames
+Description=Nightly rebuild of the neighbourhood frames and the city page's answers
 
 [Timer]
 # 04:30 Tehran (01:00 UTC) — after the night's crawl, before the morning's readers.

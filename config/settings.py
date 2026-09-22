@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # refresh runs in the background while the stale copy is still served.
     NEIGHBOURHOOD_CACHE_HOURS: int = 12
     NEIGHBOURHOOD_MAX_MONTHS: int = 12
+    # The city page's answers are precomputed nightly. Past this age they are
+    # ignored and the endpoints compute live again, so a job that stopped
+    # running costs speed rather than correctness. One missed night is covered.
+    NEIGHBOURHOOD_ANSWER_MAX_AGE_HOURS: int = 36
 
     # Model management (list / train / activate) is for the admin panel only,
     # reached through the backend. The port is firewalled; this is the second

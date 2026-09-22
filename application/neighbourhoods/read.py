@@ -1,4 +1,10 @@
-"""Read models for the neighbourhood analysis page."""
+"""Read models for the neighbourhood analysis page.
+
+Every answer here is served from the nightly store when one was precomputed for
+exactly this request (`answers.py`), and computed from the listing frame when it
+was not. The two paths return the same payload — the store holds what the
+compute path produced — so a filter nobody precomputed still works, just slower.
+"""
 from __future__ import annotations
 
 import logging
@@ -6,6 +12,7 @@ from typing import Any
 
 import pandas as pd
 
+from application.neighbourhoods import answers
 from application.neighbourhoods.dataset import AnalyticsFrame, load_analytics_frame
 from application.neighbourhoods.filters import (
     NeighbourhoodFilters,
@@ -59,7 +66,48 @@ def _meta(loaded: AnalyticsFrame, filtered: pd.DataFrame, filters: Neighbourhood
     }
 
 
+def overview_key(key: ModelKey, filters: NeighbourhoodFilters) -> answers.AnswerKey:
+    return answers.AnswerKey(
+        endpoint="overview",
+        city=key.city_slug,
+        purpose=key.purpose,
+        property_type=key.property_type,
+        filters=filters.as_dict(),
+    )
+
+
+def detail_key(
+    key: ModelKey, filters: NeighbourhoodFilters, neighbourhood: str
+) -> answers.AnswerKey:
+    return answers.AnswerKey(
+        endpoint="detail",
+        city=key.city_slug,
+        purpose=key.purpose,
+        property_type=key.property_type,
+        filters=filters.as_dict(),
+        # Spellings differ between the map and the crawl; the key is the
+        # normalised name, so «پونک» and «پونك» hit the same answer.
+        neighbourhood=normalize_persian_neighbourhood(neighbourhood),
+    )
+
+
+def cities_key(filters: NeighbourhoodFilters, *, purpose: str, property_type: str) -> answers.AnswerKey:
+    return answers.AnswerKey(
+        endpoint="cities",
+        city="all",
+        purpose=purpose,
+        property_type=property_type,
+        filters=filters.as_dict(),
+    )
+
+
 def get_overview(key: ModelKey, filters: NeighbourhoodFilters) -> dict[str, Any]:
+    """Last night's answer when there is one, otherwise computed now."""
+    stored = answers.load(overview_key(key, filters))
+    return stored if stored is not None else compute_overview(key, filters)
+
+
+def compute_overview(key: ModelKey, filters: NeighbourhoodFilters) -> dict[str, Any]:
     """Map values, ranking table and the city headline — one filtered population."""
     loaded, filtered = _loaded(key, filters)
     rows = neighbourhood_rows(
@@ -85,8 +133,26 @@ def get_detail(
     *,
     neighbourhood: str,
 ) -> dict[str, Any] | None:
-    """One neighbourhood in depth. Returns None when the name matches nothing."""
-    loaded, filtered = _loaded(key, filters)
+    """Last night's answer when there is one, otherwise computed now."""
+    stored = answers.load(detail_key(key, filters, neighbourhood))
+    return stored if stored is not None else compute_detail(key, filters, neighbourhood=neighbourhood)
+
+
+def compute_detail(
+    key: ModelKey,
+    filters: NeighbourhoodFilters,
+    *,
+    neighbourhood: str,
+    prepared: tuple[AnalyticsFrame, pd.DataFrame] | None = None,
+    city_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """One neighbourhood in depth. Returns None when the name matches nothing.
+
+    `prepared` and `city_rows` let the nightly job compute a city's frame and
+    ranking once and reuse them for all four hundred of its neighbourhoods;
+    a request passes neither.
+    """
+    loaded, filtered = prepared if prepared is not None else _loaded(key, filters)
     if filtered.empty:
         return None
 
@@ -102,7 +168,7 @@ def get_detail(
         logger.info("neighbourhood detail miss city=%s title=%s", key.city_slug, wanted)
         return None
 
-    rows = neighbourhood_rows(
+    rows = city_rows if city_rows is not None else neighbourhood_rows(
         filtered,
         target_column=loaded.target_column,
         purpose=key.purpose,
@@ -164,6 +230,19 @@ CITY_LABELS_FA = {
 
 
 def get_cities(
+    filters: NeighbourhoodFilters,
+    *,
+    purpose: str,
+    property_type: str = "apartment",
+) -> dict[str, Any]:
+    """Last night's answer when there is one, otherwise computed now."""
+    stored = answers.load(cities_key(filters, purpose=purpose, property_type=property_type))
+    if stored is not None:
+        return stored
+    return compute_cities(filters, purpose=purpose, property_type=property_type)
+
+
+def compute_cities(
     filters: NeighbourhoodFilters,
     *,
     purpose: str,

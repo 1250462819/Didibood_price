@@ -83,6 +83,28 @@ python -m pricing train-all --purpose rent --refresh-data
 
 **Rent Y:** `equivalent_deposit_toman` = `deposit + monthly × (10M / 300K)`
 
+## Neighbourhood analytics (the `/neighborhoods` page)
+
+دو لایهٔ کش، هر دو شبانه:
+
+| لایه | چیست | کجا |
+|------|------|-----|
+| frame | لیستینگ‌های تمیزشدهٔ هر شهر | `artifacts/datasets/analytics__*.parquet` |
+| answers | خود پاسخ اندپوینت‌ها، از پیش حساب‌شده | `artifacts/datasets/answers/*.json.gz` |
+
+یک یونیت systemd هر شب هر دو را می‌سازد (`didibood-price-analytics.timer`):
+
+```bash
+.venv/bin/python -m pricing refresh-analytics      # frames از کرال
+.venv/bin/python -m pricing precompute-answers     # پاسخ‌های صفحهٔ محله‌ها
+```
+
+`precompute-answers` دقیقاً همان چیزی را حساب می‌کند که صفحه می‌پرسد: ۸۰ حالت
+فیلتر (۴ امکانات × ۵ گزینهٔ اتاق) برای هر شهر، گزارش هر محله، و فهرست شهرها.
+درخواستی که پاسخ آماده دارد فقط یک فایل می‌خواند؛ هر فیلتر دیگری مثل قبل زنده
+حساب می‌شود. پاسخ کهنه‌تر از `NEIGHBOURHOOD_ANSWER_MAX_AGE_HOURS` (پیش‌فرض ۳۶
+ساعت) سرو نمی‌شود — اگر جاب شبانه بخوابد، صفحه کند می‌شود نه غلط.
+
 ## Features (Didibood-aligned)
 
 `neighbourhood`, `area`, `rooms`, `year_built`, `floor_number`, amenities, `location_lat/long`
