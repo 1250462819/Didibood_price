@@ -53,6 +53,7 @@ MIN_AMENITY_SIDE = 5
 
 #: The amenities every ranking row carries, keyed by the name the row uses.
 ROW_AMENITIES = (("has_parking", "parking"), ("has_elevator", "elevator"))
+CITY_AMENITIES = ROW_AMENITIES + (("has_storage", "storage"), ("has_balcony", "balcony"))
 
 
 def _f(value: Any) -> float | None:
@@ -389,10 +390,10 @@ def city_summary(
     )
 
     amenities: dict[str, dict[str, Any]] = {}
-    for column, name in ROW_AMENITIES:
+    for column, name in CITY_AMENITIES:
         within = (
             _weighted_premium([row[name] for row in rows if row.get(name)])
-            if rows is not None
+            if rows is not None and name in {"parking", "elevator"}
             else like_for_like_premium(frame, column, target_column)
         )
         amenities[name] = {

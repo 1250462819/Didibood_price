@@ -346,13 +346,31 @@ def test_overview_rows_carry_means_and_amenity_splits(frame):
     assert elahieh["parking"]["premium_pct"] is None
 
 
-def test_city_summary_carries_means_and_a_like_for_like_parking_premium(frame):
+def test_city_summary_carries_means_and_four_like_for_like_amenities(frame):
     summary = city_summary(frame, target_column=TARGET, purpose="sale", months=6, neighbourhood_count=3)
     assert summary["mean"] is not None
     assert summary["mean_area"] is not None
     assert summary["mean_budget_toman"] is not None
     assert "like_for_like_pct" in summary["parking"]
     assert "like_for_like_pct" in summary["elevator"]
+    assert "like_for_like_pct" in summary["storage"]
+    assert "like_for_like_pct" in summary["balcony"]
+    for key in ("parking", "elevator", "storage", "balcony"):
+        assert set(summary[key]) >= {"with_share", "with_sample", "without_sample", "like_for_like_pct"}
+
+
+def test_storage_and_balcony_compare_within_neighbourhoods_even_with_ranked_rows():
+    frame = _rows(
+        [("dear", 110_000_000, 80, 1, 2)] * 10
+        + [("dear", 100_000_000, 80, 1, 2)] * 10
+        + [("cheap", 55_000_000, 80, 1, 2)] * 10
+        + [("cheap", 50_000_000, 80, 1, 2)] * 10
+    )
+    frame.loc[[*range(10), *range(20, 30)], ["has_storage", "has_balcony"]] = 1
+    rows = neighbourhood_rows(frame, target_column=TARGET, purpose="sale", months=6)
+    summary = city_summary(frame, target_column=TARGET, purpose="sale", months=6, neighbourhood_count=2, rows=rows)
+    assert summary["storage"]["like_for_like_pct"] == pytest.approx(10.0)
+    assert summary["balcony"]["like_for_like_pct"] == pytest.approx(10.0)
 
 
 def test_detail_carries_means_on_price_bands_and_amenities(frame):
@@ -412,6 +430,8 @@ def test_the_response_models_keep_the_new_fields(frame):
     assert dumped["neighbourhoods"][0]["mean"] is not None
     assert dumped["neighbourhoods"][0]["parking"]["with_share"] is not None
     assert "like_for_like_pct" in dumped["summary"]["parking"]
+    assert "like_for_like_pct" in dumped["summary"]["storage"]
+    assert "like_for_like_pct" in dumped["summary"]["balcony"]
 
     detail = neighbourhood_detail(
         frame[frame["neighbourhood"] == "الهیه"],

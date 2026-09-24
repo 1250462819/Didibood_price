@@ -78,6 +78,8 @@ class CitySummary(BaseModel):
     mean_budget_toman: float | None = None
     parking: CityAmenitySplit | None = None
     elevator: CityAmenitySplit | None = None
+    storage: CityAmenitySplit | None = None
+    balcony: CityAmenitySplit | None = None
 
 
 class AnalyticsMeta(BaseModel):

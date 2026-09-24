@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 #: Bump when a payload's shape changes, so yesterday's answers are not served
 #: to today's code.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def answers_dir() -> Path:
