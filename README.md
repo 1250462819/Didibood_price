@@ -107,6 +107,13 @@ python -m pricing train-all --purpose rent --refresh-data
 حساب می‌شود. پاسخ کهنه‌تر از `NEIGHBOURHOOD_ANSWER_MAX_AGE_HOURS` (پیش‌فرض ۳۶
 ساعت) سرو نمی‌شود — اگر جاب شبانه بخوابد، صفحه کند می‌شود نه غلط.
 
+زیر فیلتر نوع خانه (اتاق، امکانات، متراژ، سن بنا)، محله‌ای که آگهی مشابه کمتر از
+۱۲ تا دارد برآورد می‌شود (`application/neighbourhoods/estimate.py`): میانگین کل
+آگهی‌های همان محله × ضریب همین نوع خانه که درون محله‌ها و در کل شهر اندازه گرفته
+شده. سهم آگهی‌های خود محله به نسبت تعدادشان است (۰ → فقط برآورد، ۶ → نیمه‌نیمه،
+۱۲+ → فقط داده خود محله). این ردیف‌ها `estimated` و `estimate_share` دارند و
+`low_sample` می‌مانند؛ خلاصهٔ شهر فقط از آگهی‌های واقعی حساب می‌شود.
+
 ## Features (Didibood-aligned)
 
 `neighbourhood`, `area`, `rooms`, `year_built`, `floor_number`, amenities, `location_lat/long`

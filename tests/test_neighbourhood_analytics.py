@@ -465,3 +465,98 @@ def test_a_city_row_carries_its_average(monkeypatch):
     by_city = {row["city"]: row for row in payload["cities"]}
     assert by_city["tehran"]["mean"] == pytest.approx(300_000_000)
     assert by_city["mashhad"]["mean"] == pytest.approx(100_000_000)
+
+
+# --- Estimates for neighbourhoods a filter leaves empty or thin -------------------------
+
+from application.neighbourhoods.estimate import (  # noqa: E402
+    fill_segment_gaps,
+    narrows_segment,
+    segment_multiplier,
+)
+
+
+def _segment_frame() -> pd.DataFrame:
+    """Five neighbourhoods where 2-room flats run 10% dearer per metre than the
+    neighbourhood's overall average, one with three of them, one with none."""
+    spec: list[tuple[str, float, float, int, int]] = []
+    for index, title in enumerate(["الف", "ب", "ج", "د", "ه"]):
+        price = 100_000_000 * (index + 1)
+        spec += [(title, price, 60, 1, 1)] * 12 + [(title, price * 1.2, 90, 1, 2)] * 12
+    spec += [("کم", 200_000_000, 60, 1, 1)] * 20 + [("کم", 400_000_000, 90, 1, 2)] * 3
+    spec += [("هیچ", 300_000_000, 60, 1, 1)] * 20
+    return _rows(spec)
+
+
+def _segment_rows(frame: pd.DataFrame, filters: NeighbourhoodFilters):
+    narrowed = apply_filters(frame, filters, purpose="sale", target_column=TARGET)
+    segment = neighbourhood_rows(narrowed, target_column=TARGET, purpose="sale", months=6)
+    base = neighbourhood_rows(frame, target_column=TARGET, purpose="sale", months=6)
+    return segment, base
+
+
+def test_only_a_kind_of_home_counts_as_narrowing():
+    assert narrows_segment(NeighbourhoodFilters(months=6)) is False
+    assert narrows_segment(NeighbourhoodFilters(months=6, min_rooms=2, max_rooms=2)) is True
+    assert narrows_segment(NeighbourhoodFilters(months=6, has_balcony=True)) is True
+
+
+def test_the_multiplier_is_measured_inside_each_neighbourhood():
+    filters = NeighbourhoodFilters(months=6, min_rooms=2, max_rooms=2)
+    segment, base = _segment_rows(_segment_frame(), filters)
+    multiplier = segment_multiplier(
+        {row["title"]: row for row in segment}, {row["title"]: row for row in base}, "mean", "median"
+    )
+    # 2-room flats are 1.2× the 1-room ones, so 1.2 / 1.1 of the overall average.
+    assert multiplier == pytest.approx(1.2 / 1.1, rel=1e-3)
+
+
+def test_a_neighbourhood_with_none_of_that_kind_is_estimated_from_its_own_average():
+    filters = NeighbourhoodFilters(months=6, min_rooms=2, max_rooms=2)
+    segment, base = _segment_rows(_segment_frame(), filters)
+    rows = {row["title"]: row for row in fill_segment_gaps(segment, base, filters)}
+
+    empty = rows["هیچ"]
+    assert empty["estimated"] is True
+    assert empty["estimate_share"] == 1.0
+    assert empty["sample_size"] == 0
+    assert empty["low_sample"] is True
+    assert empty["mean"] == pytest.approx(300_000_000 * 1.2 / 1.1, rel=1e-3)
+    assert empty["median_rooms"] == 2
+
+
+def test_a_thin_neighbourhood_blends_its_own_listings_with_the_estimate():
+    filters = NeighbourhoodFilters(months=6, min_rooms=2, max_rooms=2)
+    frame = _segment_frame()
+    segment, base = _segment_rows(frame, filters)
+    rows = {row["title"]: row for row in fill_segment_gaps(segment, base, filters)}
+
+    thin = rows["کم"]
+    whole = next(row for row in base if row["title"] == "کم")
+    estimate = whole["mean"] * 1.2 / 1.1
+    assert thin["estimated"] is True
+    assert thin["sample_size"] == 3
+    assert thin["estimate_share"] == pytest.approx(0.75)
+    assert thin["mean"] == pytest.approx(0.25 * 400_000_000 + 0.75 * estimate, rel=1e-3)
+
+
+def test_a_neighbourhood_with_enough_listings_keeps_its_own_figures():
+    filters = NeighbourhoodFilters(months=6, min_rooms=2, max_rooms=2)
+    segment, base = _segment_rows(_segment_frame(), filters)
+    before = {row["title"]: row for row in segment}
+    rows = {row["title"]: row for row in fill_segment_gaps(segment, base, filters)}
+    assert rows["ج"]["estimated"] is False
+    assert rows["ج"]["mean"] == before["ج"]["mean"]
+    assert [row["rank"] for row in sorted(rows.values(), key=lambda r: r["rank"])] == list(range(1, len(rows) + 1))
+
+
+def test_no_estimate_without_enough_neighbourhoods_to_measure_the_multiplier():
+    filters = NeighbourhoodFilters(months=6, min_rooms=2, max_rooms=2)
+    frame = _rows(
+        [("الف", 100_000_000, 60, 1, 1)] * 10 + [("الف", 120_000_000, 90, 1, 2)] * 10
+        + [("هیچ", 300_000_000, 60, 1, 1)] * 20
+    )
+    segment, base = _segment_rows(frame, filters)
+    rows = fill_segment_gaps(segment, base, filters)
+    assert [row["title"] for row in rows] == ["الف"]
+    assert rows[0]["estimated"] is False

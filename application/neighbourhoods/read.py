@@ -14,6 +14,11 @@ import pandas as pd
 
 from application.neighbourhoods import answers
 from application.neighbourhoods.dataset import AnalyticsFrame, load_analytics_frame
+from application.neighbourhoods.estimate import (
+    base_filters,
+    fill_segment_gaps,
+    narrows_segment,
+)
 from application.neighbourhoods.filters import (
     NeighbourhoodFilters,
     apply_filters,
@@ -107,10 +112,37 @@ def get_overview(key: ModelKey, filters: NeighbourhoodFilters) -> dict[str, Any]
     return stored if stored is not None else compute_overview(key, filters)
 
 
-def compute_overview(key: ModelKey, filters: NeighbourhoodFilters) -> dict[str, Any]:
-    """Map values, ranking table and the city headline — one filtered population."""
-    loaded, filtered = _loaded(key, filters)
+#: The unfiltered ranking the estimates scale from, kept for the frame it was
+#: built on: the nightly job asks for eighty filters over the same frame.
+_base_rows_memo: dict[tuple[ModelKey, int], tuple[object, list[dict[str, Any]]]] = {}
+
+
+def _base_rows(key: ModelKey, filters: NeighbourhoodFilters) -> list[dict[str, Any]]:
+    base = base_filters(filters)
+    loaded, filtered = _loaded(key, base)
+    memo_key = (key, base.months)
+    cached = _base_rows_memo.get(memo_key)
+    if cached is not None and cached[0] == loaded.built_at:
+        return cached[1]
     rows = neighbourhood_rows(
+        filtered,
+        target_column=loaded.target_column,
+        purpose=key.purpose,
+        months=base.months,
+    )
+    _base_rows_memo[memo_key] = (loaded.built_at, rows)
+    return rows
+
+
+def compute_overview(key: ModelKey, filters: NeighbourhoodFilters) -> dict[str, Any]:
+    """Map values, ranking table and the city headline — one filtered population.
+
+    Under a filter that picks a kind of home, neighbourhoods with too few such
+    listings are estimated from their overall price (`estimate.py`); the city
+    headline stays what the matching listings say.
+    """
+    loaded, filtered = _loaded(key, filters)
+    observed = neighbourhood_rows(
         filtered,
         target_column=loaded.target_column,
         purpose=key.purpose,
@@ -121,8 +153,13 @@ def compute_overview(key: ModelKey, filters: NeighbourhoodFilters) -> dict[str, 
         target_column=loaded.target_column,
         purpose=key.purpose,
         months=filters.months,
-        neighbourhood_count=len(rows),
-        rows=rows,
+        neighbourhood_count=len(observed),
+        rows=observed,
+    )
+    rows = (
+        fill_segment_gaps(observed, _base_rows(key, filters), filters)
+        if narrows_segment(filters)
+        else observed
     )
     return {**_meta(loaded, filtered, filters), "summary": summary, "neighbourhoods": rows}
 

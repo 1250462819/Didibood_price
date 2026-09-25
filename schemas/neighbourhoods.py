@@ -61,6 +61,13 @@ class NeighbourhoodRow(BaseModel):
     mean_budget_toman: float | None = None
     parking: AmenitySplit | None = None
     elevator: AmenitySplit | None = None
+    estimated: bool = Field(
+        False,
+        description="Filtered view only: the figures lean on the city's segment multiplier",
+    )
+    estimate_share: float = Field(
+        0.0, description="How much of the figure is the estimate (1 = no matching listings)"
+    )
 
 
 class CitySummary(BaseModel):
