@@ -263,6 +263,7 @@ CITY_LABELS_FA = {
     "tehran": "تهران",
     "mashhad": "مشهد",
     "isfahan": "اصفهان",
+    "shiraz": "شیراز",
 }
 
 

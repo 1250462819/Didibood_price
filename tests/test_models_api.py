@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app_factory import create_app
 from config.settings import settings
+from domain.model_key import SUPPORTED_CITIES
 
 
 @pytest.fixture
@@ -24,7 +25,7 @@ def test_with_the_token_every_city_is_listed_even_before_any_training(client):
     response = client.get("/api/v1/models", headers={"X-Models-Token": "secret-token"})
     assert response.status_code == 200
     cities = {key["city_slug"] for key in response.json()["keys"]}
-    assert cities == {"tehran", "mashhad", "isfahan"}
+    assert cities == set(SUPPORTED_CITIES)
 
 
 def test_training_an_unknown_city_is_refused(client):

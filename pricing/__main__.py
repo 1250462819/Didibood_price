@@ -94,7 +94,7 @@ def precompute_answers_cmd(
     type=click.Choice(SUPPORTED_PURPOSES),
 )
 def train_all(refresh_data: bool, purpose: str) -> None:
-    """Train apartment models for tehran, mashhad, isfahan."""
+    """Train apartment models for every city in SUPPORTED_CITIES."""
     for city in SUPPORTED_CITIES:
         key = ModelKey(city_slug=city, property_type="apartment", purpose=purpose)
         click.echo(f"=== {key.slug()} ===")

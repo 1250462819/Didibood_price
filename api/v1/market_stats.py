@@ -11,7 +11,7 @@ router = APIRouter(prefix="/market-stats", tags=["Market Stats"])
 
 @router.get("", response_model=MarketStatsResponse)
 def market_stats(
-    city: str = Query(..., min_length=1, max_length=128, description="City slug: tehran, mashhad, isfahan"),
+    city: str = Query(..., min_length=1, max_length=128, description="City slug: tehran, mashhad, isfahan, shiraz"),
     purpose: Purpose = Query("sale"),
     property_type: PropertyType = Query("apartment"),
     neighborhood: str | None = Query(None, max_length=128),
