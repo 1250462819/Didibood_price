@@ -266,6 +266,8 @@ CITY_LABELS_FA = {
     "shiraz": "شیراز",
     "rasht": "رشت",
     "kashan": "کاشان",
+    "qom": "قم",
+    "ahvaz": "اهواز",
 }
 
 

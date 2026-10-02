@@ -36,6 +36,8 @@ _CITY_FA_NAME = {
     "shiraz": "شیراز",
     "rasht": "رشت",
     "kashan": "کاشان",
+    "qom": "قم",
+    "ahvaz": "اهواز",
 }
 _MAP_API_BASE = "https://api.didibood.ir/api/v1/map/locations/neighborhoods"
 

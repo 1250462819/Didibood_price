@@ -3,7 +3,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SUPPORTED_CITIES = ("tehran", "mashhad", "isfahan", "shiraz", "rasht", "kashan")
+SUPPORTED_CITIES = (
+    "tehran",
+    "mashhad",
+    "isfahan",
+    "shiraz",
+    "rasht",
+    "kashan",
+    "qom",
+    "ahvaz",
+)
 SUPPORTED_PURPOSES = ("sale", "rent")
 # v1: apartment only; extend later (house_villa, land, …)
 SUPPORTED_PROPERTY_TYPES = ("apartment",)
