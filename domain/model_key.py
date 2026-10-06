@@ -12,6 +12,9 @@ SUPPORTED_CITIES = (
     "kashan",
     "qom",
     "ahvaz",
+    "karaj",
+    "neyshabur",
+    "bandar-anzali",
 )
 SUPPORTED_PURPOSES = ("sale", "rent")
 # v1: apartment only; extend later (house_villa, land, …)

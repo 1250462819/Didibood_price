@@ -38,6 +38,9 @@ _CITY_FA_NAME = {
     "kashan": "کاشان",
     "qom": "قم",
     "ahvaz": "اهواز",
+    "karaj": "کرج",
+    "neyshabur": "نیشابور",
+    "bandar-anzali": "بندر انزلی",
 }
 _MAP_API_BASE = "https://api.didibood.ir/api/v1/map/locations/neighborhoods"
 
@@ -115,20 +118,52 @@ def _is_neighbourhood_label(label: str) -> bool:
     return True
 
 
-def extract_neighbourhood_label(value: str | None) -> str | None:
-    """Pull a neighbourhood title out of noisy Divar location strings."""
-    cleaned = clean_location_label(value)
-    if not cleaned:
-        return None
+def location_label_candidates(
+    value: str | None,
+    *,
+    city_name: str | None = None,
+) -> list[str]:
+    """Every comma-separated part of a Divar location line, best candidate first.
 
-    match = re.search(r"(?:^|\s)در\s+(.+)$", cleaned)
+    Divar writes that line two ways. Most cities read neighbourhood-first —
+    «۳ روز پیش در پردیسان، قم» — but some put the city first:
+    «۱ ساعت پیش در اهواز، کیانپارس». Keeping only the text up to the first comma
+    therefore read the city as the neighbourhood for every listing in a city of
+    the second kind, so the parts are offered in order with the city's own name
+    skipped.
+    """
+    text = normalize_persian_neighbourhood(value)
+    if not text:
+        return []
+
+    match = re.search(r"(?:^|\s)در\s+(.+)$", text)
     if match:
-        candidate = clean_location_label(match.group(1))
+        text = match.group(1)
+
+    city = normalize_persian_neighbourhood(city_name)
+    parts: list[str] = []
+    for part in re.split(r"[،,]", text):
+        part = normalize_persian_neighbourhood(part)
+        if not part or (city and part == city):
+            continue
+        parts.append(part)
+    return parts
+
+
+def extract_neighbourhood_label(
+    value: str | None,
+    *,
+    city_name: str | None = None,
+) -> str | None:
+    """Pull a neighbourhood title out of noisy Divar location strings.
+
+    Returns None when the line names no neighbourhood at all — «۵ روز پیش در
+    اهواز» is the city and nothing else, and passing the raw line on would make
+    the timestamp part of a district's title.
+    """
+    for candidate in location_label_candidates(value, city_name=city_name):
         if _is_neighbourhood_label(candidate):
             return candidate
-
-    if _is_neighbourhood_label(cleaned):
-        return cleaned
     return None
 
 
@@ -184,6 +219,7 @@ def district_to_persian_map(city_slug: str) -> dict[str, str]:
         return {}
 
     catalog = map_catalog_titles(city)
+    city_fa = city_persian_name(city)
     try:
         with psycopg.connect(settings.DATABASE_URL) as conn:
             with conn.cursor() as cur:
@@ -197,8 +233,11 @@ def district_to_persian_map(city_slug: str) -> dict[str, str]:
     for district, label, count in rows:
         if not district or not label:
             continue
-        extracted = extract_neighbourhood_label(str(label))
+        extracted = extract_neighbourhood_label(str(label), city_name=city_fa)
         if not extracted:
+            continue
+        # One listing that names only its city must not label a whole district.
+        if city_fa and normalize_persian_neighbourhood(extracted) == normalize_persian_neighbourhood(city_fa):
             continue
         district_key = str(district).strip().lower()
         title_counts = by_district.setdefault(district_key, {})
@@ -247,6 +286,7 @@ def resolve_training_neighbourhood(
     district_raw = (district or "").strip()
     location_raw = (location or "").strip()
     catalog = map_catalog_titles(city)
+    city_fa = city_persian_name(city)
 
     if district_raw:
         if is_persian_neighbourhood(district_raw):
@@ -254,10 +294,10 @@ def resolve_training_neighbourhood(
             if cleaned in catalog or _is_neighbourhood_label(cleaned):
                 return cleaned
         mapped = district_to_persian_map(city).get(district_raw.lower())
-        if mapped:
+        if mapped and mapped != city_fa:
             return mapped
 
-    extracted = extract_neighbourhood_label(location_raw)
+    extracted = extract_neighbourhood_label(location_raw, city_name=city_fa)
     if extracted and (extracted in catalog or _is_neighbourhood_label(extracted)):
         return extracted
 

@@ -268,6 +268,9 @@ CITY_LABELS_FA = {
     "kashan": "کاشان",
     "qom": "قم",
     "ahvaz": "اهواز",
+    "karaj": "کرج",
+    "neyshabur": "نیشابور",
+    "bandar-anzali": "بندر انزلی",
 }
 
 
