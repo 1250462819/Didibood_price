@@ -108,7 +108,7 @@ def test_comparable_keeps_small_neighbourhood_sample():
     assert result["filters_applied"]["neighbourhood_applied"] is True
 
 
-def test_comparable_ignores_area_and_rooms():
+def test_comparable_falls_back_to_whole_neighbourhood_when_too_few_similar():
     df = pd.DataFrame(
         {
             "neighbourhood": ["بهار"] * 5,
@@ -132,9 +132,131 @@ def test_comparable_ignores_area_and_rooms():
     )
 
     assert result["sample_size"] == 5
-    assert result["filters_applied"]["recent_days"] == 30
-    assert "area" not in result["filters_applied"]
-    assert "rooms" not in result["filters_applied"]
+    filters = result["filters_applied"]
+    assert filters["recent_days"] == 30
+    assert filters["scope"] == "neighbourhood"
+    assert filters["similarity"] == "none"
+    assert filters["area_min"] is None
+
+
+def _listings(
+    neighbourhood: str,
+    *,
+    count: int,
+    area: float,
+    year: int | None,
+    pps: int,
+    lat: float = 32.70,
+    lng: float = 51.65,
+) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "neighbourhood": [neighbourhood] * count,
+            "area": [area] * count,
+            "year_built": [year] * count,
+            "location_lat": [lat] * count,
+            "location_long": [lng] * count,
+            "price_per_sqm_toman": [pps] * count,
+        }
+    )
+
+
+def test_comparable_matches_size_and_age_within_neighbourhood():
+    """A new 170 m² flat is compared with new large flats, not the old stock."""
+    df = pd.concat(
+        [
+            _listings("ملک شهر", count=10, area=165.0, year=1403, pps=125_000_000),
+            _listings("ملک شهر", count=40, area=85.0, year=1385, pps=90_000_000),
+        ],
+        ignore_index=True,
+    )
+    features = PricingFeatures.from_request(
+        {"city_slug": "isfahan", "neighbourhood": "ملک‌شهر", "area": 170, "year_built": 1404}
+    )
+
+    result = comparable_stats(features, dataset=df, target_column="price_per_sqm_toman")
+
+    assert result["sample_size"] == 10
+    assert result["median_price_per_sqm_toman"] == 125_000_000
+    filters = result["filters_applied"]
+    assert filters["scope"] == "neighbourhood"
+    assert filters["neighbourhood_applied"] is True
+    assert filters["similarity"] == "strict"
+    assert (filters["area_min"], filters["area_max"]) == (145, 195)
+    assert filters["year_min"] == 1399
+    # Capped at the newest listing rather than 1409.
+    assert filters["year_max"] == 1404
+
+
+def test_comparable_widens_band_before_leaving_neighbourhood():
+    df = pd.concat(
+        [
+            _listings("ملک شهر", count=3, area=170.0, year=1404, pps=125_000_000),
+            _listings("ملک شهر", count=7, area=135.0, year=1396, pps=110_000_000),
+            _listings("ملک شهر", count=30, area=70.0, year=1380, pps=80_000_000),
+        ],
+        ignore_index=True,
+    )
+    features = PricingFeatures.from_request(
+        {"city_slug": "isfahan", "neighbourhood": "ملک شهر", "area": 170, "year_built": 1404}
+    )
+
+    result = comparable_stats(features, dataset=df, target_column="price_per_sqm_toman")
+
+    assert result["sample_size"] == 10
+    assert result["filters_applied"]["scope"] == "neighbourhood"
+    assert result["filters_applied"]["similarity"] == "wide"
+
+
+def test_comparable_uses_nearby_listings_when_neighbourhood_has_none():
+    """A neighbourhood with no listings of its own is covered by its surroundings."""
+    df = pd.concat(
+        [
+            # ~0.6 km away, other neighbourhood
+            _listings("مرداویج", count=9, area=120.0, year=1400, pps=110_000_000, lat=32.6255, lng=51.6650),
+            # ~11 km away, must not leak in
+            _listings("زینبیه", count=30, area=120.0, year=1400, pps=60_000_000, lat=32.7200, lng=51.6650),
+        ],
+        ignore_index=True,
+    )
+    features = PricingFeatures.from_request(
+        {
+            "city_slug": "isfahan",
+            "neighbourhood": "محله بدون آگهی",
+            "area": 120,
+            "year_built": 1401,
+            "location_lat": 32.6200,
+            "location_long": 51.6650,
+        }
+    )
+
+    result = comparable_stats(features, dataset=df, target_column="price_per_sqm_toman")
+
+    assert result["sample_size"] == 9
+    assert result["median_price_per_sqm_toman"] == 110_000_000
+    filters = result["filters_applied"]
+    assert filters["scope"] == "nearby"
+    assert filters["neighbourhood_applied"] is False
+    assert filters["similarity"] == "strict"
+    assert filters["radius_km"] == 1.5
+
+
+def test_comparable_skips_listings_without_build_year_when_matching_age():
+    df = pd.concat(
+        [
+            _listings("ملک شهر", count=8, area=170.0, year=1402, pps=125_000_000),
+            _listings("ملک شهر", count=8, area=170.0, year=None, pps=70_000_000),
+        ],
+        ignore_index=True,
+    )
+    features = PricingFeatures.from_request(
+        {"city_slug": "isfahan", "neighbourhood": "ملک شهر", "area": 170, "year_built": 1404}
+    )
+
+    result = comparable_stats(features, dataset=df, target_column="price_per_sqm_toman")
+
+    assert result["sample_size"] == 8
+    assert result["median_price_per_sqm_toman"] == 125_000_000
 
 
 def test_comparable_empty_when_neighbourhood_missing():

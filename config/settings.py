@@ -35,8 +35,18 @@ class Settings(BaseSettings):
     RANDOM_SEED: int = 42
     OUTLIER_IQR_MULTIPLIER: float = 1.5
 
+    # Comparables are matched on size and age before they are compared with the
+    # estimate: a neighbourhood-wide median sets a new 170 m² flat against
+    # 30-year-old 80 m² ones and reads as a 25% "premium" that is just mix.
+    # Strict first, then wide, then nearby listings, then the unfiltered pool.
     COMPARABLE_AREA_TOLERANCE_PCT: float = 0.15
-    COMPARABLE_MIN_SAMPLE: int = 5
+    COMPARABLE_AREA_TOLERANCE_WIDE_PCT: float = 0.30
+    COMPARABLE_YEAR_TOLERANCE: int = 5
+    COMPARABLE_YEAR_TOLERANCE_WIDE: int = 10
+    COMPARABLE_NEARBY_RADIUS_KM: float = 1.5
+    # A tier is used only with at least this many listings; a median and
+    # quartiles over three listings move with every new ad.
+    COMPARABLE_TIER_MIN_ROWS: int = 8
     # Comparables use PLP rows last seen within this window (live market snapshot).
     COMPARABLE_RECENT_DAYS: int = 30
 

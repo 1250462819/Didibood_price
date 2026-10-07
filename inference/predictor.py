@@ -12,7 +12,7 @@ from data.comparables_subset import (
     known_neighbourhood_titles as _known_neighbourhood_titles,
 )
 from data.comparables_subset import (
-    subset_comparables,
+    select_similar_comparables,
 )
 from data.extract import extract_comparables_dataframe, load_or_extract
 from data.neighbourhood_persian import resolve_request_neighbourhood
@@ -217,17 +217,14 @@ def comparable_stats(
         return _empty_comparables(features.purpose)
 
     neighbourhood = (features.neighbourhood or "").strip()
-    subset, filters = subset_comparables(dataset, neighbourhood or None)
-    neighbourhood_applied = bool(filters.get("neighbourhood_applied"))
-
-    if neighbourhood_applied and subset.empty:
-        return _empty_comparables(
-            features.purpose,
-            filters={
-                **filters,
-                "min_max_outliers_removed": 0,
-            },
-        )
+    subset, filters = select_similar_comparables(
+        dataset,
+        neighbourhood=neighbourhood or None,
+        area=features.area,
+        year_built=features.year_built,
+        lat=features.location_lat,
+        lng=features.location_long,
+    )
 
     y = subset[target_column].astype(float)
     if y.empty:
